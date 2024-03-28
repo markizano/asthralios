@@ -1,0 +1,10 @@
+__pycache__
+*.pyc
+*.safetensors
+*.zip
+*.tar
+*.gz
+*.bz2
+*.jpg
+*.png
+*.pdf

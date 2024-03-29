@@ -1,0 +1,4 @@
+#!/bin/bash
+
+# mostly used for testing.
+PYTHONPATH=lib python3 -m asthralios.cli $@

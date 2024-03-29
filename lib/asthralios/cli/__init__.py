@@ -11,8 +11,8 @@ import pasimple
 
 from signal import signal, SIGINT
 
-from faster_whisper import WhisperModel
-from faster_whisper.vad import VadOptions
+from faster_whisper import WhisperModel, format_timestamp
+from faster_whisper.vad import VadOptions, get_vad_model
 
 import kizano
 kizano.Config.APP_NAME = 'asthralios'
@@ -69,10 +69,57 @@ def print_stream_attrs(stream):
     log.debug(f'  Latency: {stream.get_latency() / 1000} ms')
 
 def interrupt(signal, frame):
-    log.info('Caught Ctrl+C, exiting...')
+    log.error('Caught Ctrl+C, exiting...')
     global _running
     _running = False
     sys.exit(8)
+
+class Ears:
+    '''
+    This class represents Asthralios' ears.
+    Asthralios listens well. He listens to the world around him and tries to understand what is being said.
+    
+    '''
+    def __init__(self, config: dict, model: WhisperModel, stream: pasimple.PaSimple):
+        self.config = config
+        self.model = model
+        self.stream = stream
+        self.listen_chunks = 5
+        self.vad_options = VadOptions(
+            threshold=0.5,
+            min_speech_duration_ms=450,
+            max_speech_duration_s=float("inf"),
+            min_silence_duration_ms=2000,
+            window_size_samples=1024,
+            speech_pad_ms=250,
+        )
+
+    def _next_chunk(self) -> np.ndarray:
+        '''
+        Read the next chunk of audio from the stream.
+        '''
+        audio = np.frombuffer( self.stream.read(BYTES_PER_SEC), dtype=np.int16 ).astype(np.float32) / 32768.0
+        return audio[~np.isnan(audio) & ~np.isinf(audio)]
+
+    def listen(self) -> np.ndarray:
+        '''
+        Listen to the stream until silence is detected for 3s.
+        '''
+        global _running
+        result = np.array([]).astype(np.float32)
+        audio = self._next_chunk()
+        silence = 0 # concurrent number of seconds we hear relative "silence" or speech below threshold
+        vad = get_vad_model()
+        vad_state = vad.get_initial_state(batch_size=1)
+        while silence < 3 and _running:
+            speech_prob, vad_state = vad(audio, vad_state, SAMPLE_RATE)
+            if speech_prob > self.vad_options.threshold:
+                silence = 0 # Reset silence to 0, we heard something.
+                result = np.concatenate((result, audio), dtype=np.float32)
+            else:
+                silence += 1
+            audio = self._next_chunk()
+        return result
 
 def main():
     '''
@@ -86,9 +133,13 @@ def main():
     config = kizano.utils.dictmerge(opts, config)
     log.debug(config)
     log.info("Asthralios is waking up...")
-    model = WhisperModel(os.getenv('WHISPER_MODEL', 'guillaumekln/faster-whisper-large-v2'), device='cuda', compute_type='auto')
-    listen_chunks = 3 # Number of seconds to record in chunks.
-    stream_rec = pasimple.PaSimple(pasimple.PA_STREAM_RECORD,
+    model = WhisperModel(
+        os.getenv('WHISPER_MODEL', 'guillaumekln/faster-whisper-large-v2'),
+        device='cuda',
+        compute_type='auto',
+        cpu_threads=os.cpu_count(),
+    )
+    stream = pasimple.PaSimple(pasimple.PA_STREAM_RECORD,
         FORMAT,
         CHANNELS,
         SAMPLE_RATE,
@@ -99,42 +150,24 @@ def main():
     global _running
     _running = True
     signal(SIGINT, interrupt)
+    conversation = []
     while _running:
         log.info('Asthralios is listening...')
+        hearing = Ears(config, model, stream)
         try:
-            audio = np.frombuffer( stream_rec.read(BYTES_PER_SEC * listen_chunks), dtype=np.float32 )
-            clean_audio = audio[~np.isnan(audio) & ~np.isinf(audio)]
-            vad_options = VadOptions(
-                threshold=0.8,
-                min_speech_duration_ms=450,
-                max_speech_duration_s=float("inf"),
-                min_silence_duration_ms=3000,
-                window_size_samples=1024,
-                speech_pad_ms=250,
-            )
-            log.debug(json.dumps({
-                'audio.shape': clean_audio.shape,
-                'audio.dtype': clean_audio.dtype,
-                'audio.size': clean_audio.size,
-                'audio.itemsize': clean_audio.itemsize,
-                'audio.nbytes': clean_audio.nbytes,
-                'isnan': np.any(np.isnan(clean_audio)),
-                'isinf': np.any(np.isinf(clean_audio))
-            }, indent=2, default=str))
+            request = hearing.listen()
             segments, info = model.transcribe(
-                clean_audio,
+                request,
                 language=config.get('language', 'en'),
                 without_timestamps=True,
                 word_timestamps=False,
                 vad_filter=True,
-                vad_parameters=vad_options
+                vad_parameters=hearing.vad_options
             )
-            log.debug(f"Transcription Info: {info}")
-            message = ''
-            for segment in segments:
-                log.debug(segment)
-                message += segment.text
+            log.debug(info)
+            message = ' '.join([ segment.text for segment in segments ])
             log.info(f"Read: {message}")
+            # @FutureFeature: Next, send the prompt to local ChatGPT for a response.
         except KeyboardInterrupt:
             log.error('Ctrl+C detected... closing my ears ...')
             _running = False

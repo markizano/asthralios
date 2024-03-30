@@ -1,13 +1,9 @@
 
 import os, sys
 import argparse
-import json
 import traceback as tb
 import numpy as np
 import pasimple
-
-# from asthralios.asr.asr_factory import ASRFactory
-# from asthralios.vad.vad_factory import VADFactory
 
 from signal import signal, SIGINT
 
@@ -18,6 +14,8 @@ import kizano
 kizano.Config.APP_NAME = 'asthralios'
 
 log = kizano.getLogger(__name__)
+
+import asthralios.gpt as gpt
 
 FORMAT = pasimple.PA_SAMPLE_S16LE
 SAMPLE_WIDTH = pasimple.format2width(FORMAT)
@@ -98,7 +96,7 @@ class Ears:
         '''
         Read the next chunk of audio from the stream.
         '''
-        audio = np.frombuffer( self.stream.read(BYTES_PER_SEC), dtype=np.int16 ).astype(np.float32) / 32768.0
+        audio = np.frombuffer( self.stream.read(BYTES_PER_SEC * 2), dtype=np.int16 ).astype(np.float32) / 32768.0
         return audio[~np.isnan(audio) & ~np.isinf(audio)]
 
     def listen(self) -> np.ndarray:
@@ -111,7 +109,7 @@ class Ears:
         silence = 0 # concurrent number of seconds we hear relative "silence" or speech below threshold
         vad = get_vad_model()
         vad_state = vad.get_initial_state(batch_size=1)
-        while silence < 3 and _running:
+        while silence < 2 and _running:
             speech_prob, vad_state = vad(audio, vad_state, SAMPLE_RATE)
             if speech_prob > self.vad_options.threshold:
                 silence = 0 # Reset silence to 0, we heard something.
@@ -120,6 +118,21 @@ class Ears:
                 silence += 1
             audio = self._next_chunk()
         return result
+
+    def toText(self, audio: np.ndarray) -> str:
+        '''
+        Convert the audio received to text quickly.
+        '''
+        segments, info = self.model.transcribe(
+            audio,
+            language=self.config.get('language', 'en'),
+            without_timestamps=True,
+            word_timestamps=False,
+            vad_filter=True,
+            vad_parameters=self.vad_options
+        )
+        log.debug(info)
+        return ' '.join([ segment.text for segment in segments ])
 
 def main():
     '''
@@ -147,27 +160,20 @@ def main():
         stream_name='asthralios-ears',
         maxlength=BYTES_PER_SEC * 2,
         fragsize=BYTES_PER_SEC // 5)
+    chat = gpt.localGPT(host='secretum.home.asthralios.net')
     global _running
     _running = True
     signal(SIGINT, interrupt)
-    conversation = []
     while _running:
         log.info('Asthralios is listening...')
         hearing = Ears(config, model, stream)
         try:
             request = hearing.listen()
-            segments, info = model.transcribe(
-                request,
-                language=config.get('language', 'en'),
-                without_timestamps=True,
-                word_timestamps=False,
-                vad_filter=True,
-                vad_parameters=hearing.vad_options
-            )
-            log.debug(info)
-            message = ' '.join([ segment.text for segment in segments ])
-            log.info(f"Read: {message}")
-            # @FutureFeature: Next, send the prompt to local ChatGPT for a response.
+            message = hearing.toText(request)
+            log.info(f"\x1b[34mRead\x1b[0m: {message}")
+            if message:
+                response = chat.talk(message)
+                log.info(f"last message: {response['message']['content']}") # @FutureFeature: Speak the response.
         except KeyboardInterrupt:
             log.error('Ctrl+C detected... closing my ears ...')
             _running = False

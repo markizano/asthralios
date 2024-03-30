@@ -16,12 +16,7 @@ kizano.Config.APP_NAME = 'asthralios'
 log = kizano.getLogger(__name__)
 
 import asthralios.gpt as gpt
-
-FORMAT = pasimple.PA_SAMPLE_S16LE
-SAMPLE_WIDTH = pasimple.format2width(FORMAT)
-CHANNELS = 1
-SAMPLE_RATE = 16000
-BYTES_PER_SEC = CHANNELS * SAMPLE_RATE * SAMPLE_WIDTH
+import asthralios.senses.ears as ears
 
 global _running
 _running = False
@@ -72,68 +67,6 @@ def interrupt(signal, frame):
     _running = False
     sys.exit(8)
 
-class Ears:
-    '''
-    This class represents Asthralios' ears.
-    Asthralios listens well. He listens to the world around him and tries to understand what is being said.
-    
-    '''
-    def __init__(self, config: dict, model: WhisperModel, stream: pasimple.PaSimple):
-        self.config = config
-        self.model = model
-        self.stream = stream
-        self.listen_chunks = 5
-        self.vad_options = VadOptions(
-            threshold=0.5,
-            min_speech_duration_ms=450,
-            max_speech_duration_s=float("inf"),
-            min_silence_duration_ms=2000,
-            window_size_samples=1024,
-            speech_pad_ms=250,
-        )
-
-    def _next_chunk(self) -> np.ndarray:
-        '''
-        Read the next chunk of audio from the stream.
-        '''
-        audio = np.frombuffer( self.stream.read(BYTES_PER_SEC * 2), dtype=np.int16 ).astype(np.float32) / 32768.0
-        return audio[~np.isnan(audio) & ~np.isinf(audio)]
-
-    def listen(self) -> np.ndarray:
-        '''
-        Listen to the stream until silence is detected for 3s.
-        '''
-        global _running
-        result = np.array([]).astype(np.float32)
-        audio = self._next_chunk()
-        silence = 0 # concurrent number of seconds we hear relative "silence" or speech below threshold
-        vad = get_vad_model()
-        vad_state = vad.get_initial_state(batch_size=1)
-        while silence < 2 and _running:
-            speech_prob, vad_state = vad(audio, vad_state, SAMPLE_RATE)
-            if speech_prob > self.vad_options.threshold:
-                silence = 0 # Reset silence to 0, we heard something.
-                result = np.concatenate((result, audio), dtype=np.float32)
-            else:
-                silence += 1
-            audio = self._next_chunk()
-        return result
-
-    def toText(self, audio: np.ndarray) -> str:
-        '''
-        Convert the audio received to text quickly.
-        '''
-        segments, info = self.model.transcribe(
-            audio,
-            language=self.config.get('language', 'en'),
-            without_timestamps=True,
-            word_timestamps=False,
-            vad_filter=True,
-            vad_parameters=self.vad_options
-        )
-        log.debug(info)
-        return ' '.join([ segment.text for segment in segments ])
-
 def main():
     '''
     entrypoint.
@@ -146,33 +79,18 @@ def main():
     config = kizano.utils.dictmerge(opts, config)
     log.debug(config)
     log.info("Asthralios is waking up...")
-    model = WhisperModel(
-        os.getenv('WHISPER_MODEL', 'guillaumekln/faster-whisper-large-v2'),
-        device='cuda',
-        compute_type='auto',
-        cpu_threads=os.cpu_count(),
-    )
-    stream = pasimple.PaSimple(pasimple.PA_STREAM_RECORD,
-        FORMAT,
-        CHANNELS,
-        SAMPLE_RATE,
-        app_name='asthralios',
-        stream_name='asthralios-ears',
-        maxlength=BYTES_PER_SEC * 2,
-        fragsize=BYTES_PER_SEC // 5)
-    chat = gpt.localGPT(host='secretum.home.asthralios.net')
+    chat = gpt.LocalGPT(host='secretum.home.asthralios.net')
     global _running
     _running = True
     signal(SIGINT, interrupt)
+    hearing = ears.LanguageCenter(config)
     while _running:
         log.info('Asthralios is listening...')
-        hearing = Ears(config, model, stream)
         try:
-            request = hearing.listen()
-            message = hearing.toText(request)
-            log.info(f"\x1b[34mRead\x1b[0m: {message}")
-            if message:
-                response = chat.talk(message)
+            for query in hearing.listen():
+                log.info(f"\x1b[34mRead\x1b[0m: {query}")
+                if query:
+                    response = chat.talk(query)
                 log.info(f"last message: {response['message']['content']}") # @FutureFeature: Speak the response.
         except KeyboardInterrupt:
             log.error('Ctrl+C detected... closing my ears ...')

@@ -1,4 +1,5 @@
 import io, os
+import random
 import pasimple
 import numpy as np
 import multiprocessing as mp
@@ -29,14 +30,6 @@ class PulseClient(object):
         self.config = config
         self._pool: list[mp.Process] = []
         self.listening = False
-        self.stream = pasimple.PaSimple(pasimple.PA_STREAM_RECORD,
-            self.FORMAT,
-            self.CHANNELS,
-            self.SAMPLE_RATE,
-            app_name='asthralios',
-            stream_name='asthralios-ears',
-            maxlength=self.BYTES_PER_SEC * 2,
-            fragsize=self.BYTES_PER_SEC // 5)
         self.vad_options = VadOptions(
             threshold=0.1,
             min_speech_duration_ms=450,
@@ -46,21 +39,21 @@ class PulseClient(object):
             speech_pad_ms=250,
         )
 
-    def _next_chunk(self) -> np.ndarray:
+    def _next_chunk(self, stream: pasimple.PaSimple) -> np.ndarray:
         '''
         Read the next chunk of audio from the stream.
         '''
-        audio = np.frombuffer( self.stream.read(self.BYTES_PER_SEC), dtype=np.int16 ).astype(np.float32) / 32768.0
+        audio = np.frombuffer( stream.read(self.BYTES_PER_SEC), dtype=np.int16 ).astype(np.float32) / 32768.0
         return audio[~np.isnan(audio) & ~np.isinf(audio)]
 
-    def getSoundOfWords(self, doneListening: int = 2) -> np.ndarray:
+    def getSoundOfWords(self, stream: pasimple.PaSimple, doneListening: int = 2) -> np.ndarray:
         '''
         Listen to the stream until silence is detected for 2s.
         Yield audio chunks as long as there is speech.
         @param doneListening: The number of seconds of silence to wait before stopping.
         '''
         result = np.array([]).astype(np.float32)
-        audio = self._next_chunk()
+        audio = self._next_chunk(stream)
         silence = 0 # number of seconds we hear relative "silence" or speech below threshold
         has_spoken = False
         vad = get_vad_model()
@@ -70,13 +63,14 @@ class PulseClient(object):
             if speech_prob > self.vad_options.threshold:
                 silence = 0
                 has_spoken = True
+                log.info([random.choice(['uh-huh...', 'I hear you ...', 'yeap...'])])
                 result = np.concatenate((result, audio), dtype=np.float32)
             else:
                 if has_spoken:
                     silence += 1
                 else:
                     log.debug("(I haven't heard you yet...).")
-            audio = self._next_chunk()
+            audio = self._next_chunk(stream)
         log.info(f'Heard {silence} seconds of post-speech silence.')
         return result
 
@@ -84,8 +78,16 @@ class PulseClient(object):
         '''
         Stream audio from the mic to a queue.
         '''
+        stream = pasimple.PaSimple(pasimple.PA_STREAM_RECORD,
+            self.FORMAT,
+            self.CHANNELS,
+            self.SAMPLE_RATE,
+            app_name='asthralios',
+            stream_name='asthralios-ears',
+            maxlength=self.BYTES_PER_SEC * 2,
+            fragsize=self.BYTES_PER_SEC // 5)
         while self.listening:
-            audio = self.getSoundOfWords()
+            audio = self.getSoundOfWords(stream, 2)
             q.put(audio)
         return 0
 
@@ -136,7 +138,7 @@ class LanguageCenter(object):
             without_timestamps=True,
             word_timestamps=False,
             vad_filter=True,
-            vad_parameters=self.vad_options
+            vad_parameters=self.client.vad_options
         )
         log.debug(info)
         return ' '.join([ segment.text for segment in segments ])

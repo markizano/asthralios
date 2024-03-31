@@ -63,7 +63,7 @@ class PulseClient(object):
             if speech_prob > self.vad_options.threshold:
                 silence = 0
                 has_spoken = True
-                log.info([random.choice(['uh-huh...', 'I hear you ...', 'yeap...'])])
+                log.info([random.choice(tuple(['uh-huh...', 'I hear you ...', 'yeap...']))])
                 result = np.concatenate((result, audio), dtype=np.float32)
             else:
                 if has_spoken:

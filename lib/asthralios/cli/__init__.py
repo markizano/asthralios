@@ -3,12 +3,8 @@ import os, sys
 import argparse
 import traceback as tb
 import numpy as np
-import pasimple
 
 from signal import signal, SIGINT
-
-from faster_whisper import WhisperModel, format_timestamp
-from faster_whisper.vad import VadOptions, get_vad_model
 
 import kizano
 kizano.Config.APP_NAME = 'asthralios'
@@ -91,7 +87,8 @@ def main():
                 log.info(f"\x1b[34mRead\x1b[0m: {query}")
                 if query:
                     response = chat.talk(query)
-                log.info(f"last message: {response['message']['content']}") # @FutureFeature: Speak the response.
+                    log.info(f"last message: {response['message']['content']}") # @FutureFeature: Speak the response.
+                    chat.speak(response['message']['content'])
         except KeyboardInterrupt:
             log.error('Ctrl+C detected... closing my ears ...')
             _running = False

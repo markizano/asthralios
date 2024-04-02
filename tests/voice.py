@@ -40,7 +40,7 @@ def main():
         tts = TTS("tts_models/en/jenny/jenny").to(device=torch.device('cpu'))
     else:
         request = urllib3.PoolManager()
-        response = request.request('GET', 'http://secretum:5002/api/tts', fields={'text': text})
+        response = request.request('GET', 'http://tts/api/tts', fields={'text': text})
     log.info('Done connecting to TTS.')
 
     log.info('Generating a welcome message...')

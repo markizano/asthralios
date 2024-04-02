@@ -220,7 +220,7 @@ class LanguageCenter(object):
         device = "cuda" if torch.cuda.is_available() else "cpu"
         tts_model_name = os.environ.get('TTS_MODEL', 'tts_models/en/jenny/jenny')
         self.tts = TTS(tts_model_name).to(device)
-        self.gpt = gpt.LocalGPT(host='secretum.home.asthralios.net')
+        self.gpt = gpt.LocalGPT(host='chatgpt')
         self.listening = True
 
     @property

@@ -4,16 +4,12 @@ import os, sys
 import argparse
 import time
 import traceback as tb
-import numpy as np
-
 from signal import signal, SIGINT
 
 import kizano
 kizano.Config.APP_NAME = 'asthralios'
-
 log = kizano.getLogger(__name__)
 
-import asthralios.gpt as gpt
 import asthralios.senses.ears as ears
 
 global _running
@@ -51,13 +47,6 @@ def getOptions() -> dict:
     #     return opts.__dict__
 
     return dict(opts.__dict__)
-
-def print_stream_attrs(stream):
-    log.debug(f'  Direction: {stream.direction()}')
-    log.debug(f'  Format: {stream.format()}')
-    log.debug(f'  Channels: {stream.channels()}')
-    log.debug(f'  Rate: {stream.rate()} Hz')
-    log.debug(f'  Latency: {stream.get_latency() / 1000} ms')
 
 def interrupt(signal, frame):
     log.error('Caught ^C interrupt, exiting...')

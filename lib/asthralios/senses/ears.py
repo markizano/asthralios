@@ -1,4 +1,4 @@
-import io, os
+import os
 import random
 import pasimple
 import numpy as np
@@ -154,8 +154,13 @@ class PulseClient(object):
     def speak(self, audio: np.ndarray):
         '''
         Speak the audio to the output stream.
+        Buffer/stream the audio if it is too long.
         '''
-        return self.pool.output.queue.put(audio)
+        if len(audio) > self.SAMPLE_SIZE * 3:
+            for i in range(0, len(audio), self.SAMPLE_SIZE):
+                self.pool.output.queue.put(audio[i:i+self.SAMPLE_SIZE])
+        else:
+            self.pool.output.queue.put(audio)
 
     def listen(self) -> Generator[np.ndarray, None, None]:
         '''
@@ -300,6 +305,8 @@ class LanguageCenter(object):
         for pq in pool:
             audio = pq.queue.get()
             self.client.speak(audio)
+
+        for pq in pool:
             pq.process.join()
 
         return audio

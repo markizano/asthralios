@@ -1,14 +1,10 @@
-import multiprocessing
 import typing
 import urllib3
 import json
-import torch
-import pasimple
-import numpy as np
+import multiprocessing as mp
 
-# https://github.com/coqui-ai/tts
-from TTS.api import TTS
-
+import kizano
+log = kizano.getLogger(__name__)
 class Message(typing.NamedTuple):
     '''
     A message object for ollama2.
@@ -27,21 +23,11 @@ class LocalGPT:
     def __init__(self, host: str='127.0.0.1', port: int=11434):
         self.prefix = f'http://{host}:{port}'
         self.http = urllib3.PoolManager()
-        self.conversation: list[Message] = [Message('system', ("You are a helpful assistant named Asthralios. "
+        self.conversation: list[Message] = [Message('system', ("You are a helpful assistant named Asthralios and you serve me, Markizano. "
                 "You have an aulturistic tone like Alfred is to Batman and Jarvis is to Iron Man. "
                 "You are a voice assistant that can help with a variety of tasks. You are careful not to be too wordy."))]
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.tts = TTS("tts_models/en/multi-dataset/tortoise-v2").to(device)
-        self.client = pasimple.PaSimple(
-            pasimple.PA_STREAM_PLAYBACK,
-            pasimple.PA_SAMPLE_S16LE,
-            1,
-            16000,
-            app_name='asthralios',
-            stream_name='asthralios-voice',
-        )
 
-    def chat(self, q: multiprocessing.Queue, text: str) -> str:
+    def converse(self, text: str) -> str:
         '''
         Query the local ollama instance with the text.
         '''
@@ -57,27 +43,14 @@ class LocalGPT:
             headers={'Content-Type': 'application/json'}
         )
         result = json.loads( response.data.decode('utf-8') )
-        self.conversation.append(Message('assistant', result['message']['content']))
-        q.put(result)
-        return 0
+        log.debug(result)
+        msg = result['message']['content']
+        self.conversation.append(Message('assistant', msg))
+        return msg
 
-    def talk(self, text: str) -> str:
+    def __del__(self):
         '''
-        Query the local ollama instance with the text.
+        Close the connection to the local ollama instance.
         '''
-        q = multiprocessing.Queue()
-        p = multiprocessing.Process(target=self.chat, args=(q, text,))
-        p.start()
-        return q.get()
-
-    def speak(self, text: str) -> np.ndarray:
-        '''
-        Use TTS to speak the text.
-        '''
-        wav = self.tts.tts(text=text)
-        npwav = np.array(wav, dtype=np.float32)
-        wav_norm = np.array(npwav * (32767 / max(0.01, np.max(np.abs(npwav)))), dtype=np.int16)
-        # Play wav using the pasimple output module
-        self.client.write(wav_norm.astype(np.int16).tobytes())
-        return wav_norm
-
+        self.http.clear()
+        log.debug('LocalGPT closed.')

@@ -1,6 +1,8 @@
 
+import re
 import os, sys
 import argparse
+import time
 import traceback as tb
 import numpy as np
 
@@ -58,7 +60,7 @@ def print_stream_attrs(stream):
     log.debug(f'  Latency: {stream.get_latency() / 1000} ms')
 
 def interrupt(signal, frame):
-    log.error('Caught Ctrl+C, exiting...')
+    log.error('Caught ^C interrupt, exiting...')
     global _running
     _running = False
     sys.exit(8)
@@ -75,30 +77,34 @@ def main():
     config = kizano.utils.dictmerge(opts, config)
     log.debug(config)
     log.info("Asthralios is waking up...")
-    chat = gpt.LocalGPT(host='secretum.home.asthralios.net')
-    global _running
-    _running = True
     signal(SIGINT, interrupt)
-    hearing = ears.LanguageCenter(config)
-    while _running:
+    chat = ears.LanguageCenter(config)
+    chat.speak('Hello, I am Asthralios. How may I help you?')
+    while chat.listening:
         log.info('Asthralios is listening...')
+        time.sleep(1)
         try:
-            for query in hearing.listen():
+            for query in chat.listen():
                 log.info(f"\x1b[34mRead\x1b[0m: {query}")
                 if query:
-                    response = chat.talk(query)
-                    log.info(f"last message: {response['message']['content']}") # @FutureFeature: Speak the response.
-                    chat.speak(response['message']['content'])
+                    response = chat.converse(query)
+                    log.info(f"last message: {response}") # @FutureFeature: Speak the response.
+                    if re.match(r'^pause.*60.*sec(?:ond)?s?$', response.lower(), re.IGNORECASE):
+                        log.info('You asked me to wait a minute...')
+                        time.sleep(60)
+                        continue
+                    chat.speak(response)
         except KeyboardInterrupt:
             log.error('Ctrl+C detected... closing my ears ...')
-            _running = False
+            chat.listening = False
         except RuntimeWarning as rw:
             log.error(f"Model failed: {rw}")
             log.error('Fatal.')
-            _running = False
+            chat.listening = False
         except Exception as e:
             log.error(f"Sorry, I missed that: {e}")
             log.error(tb.format_exc())
+    log.info('Asthralios is going down for maintenance...')
 
 if __name__ == "__main__":
     sys.exit( main() )

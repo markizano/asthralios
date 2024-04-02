@@ -1,7 +1,6 @@
 import typing
 import urllib3
 import json
-import multiprocessing as mp
 
 import kizano
 log = kizano.getLogger(__name__)

@@ -3,18 +3,24 @@ import random
 import pasimple
 import numpy as np
 import multiprocessing as mp
+import urllib3
 from typing import Generator, NamedTuple
 
 import torch
 from TTS.api import TTS
 
-from faster_whisper import WhisperModel, format_timestamp
+from faster_whisper import WhisperModel
 from faster_whisper.vad import VadOptions, get_vad_model
 
 import kizano
 log = kizano.getLogger(__name__)
 
 import asthralios.gpt as gpt
+
+WHISPER_MODEL = os.environ.get('WHISPER_MODEL', 'guillaumekln/faster-whisper-large-v2')
+TTS_MODEL = os.environ.get('TTS_MODEL', 'tts_models/en/jenny/jenny')
+TTS_TYPE = os.environ.get('TTS_TYPE', 'local')
+LANGUAGE = os.environ.get('LANGUAGE', 'en')
 
 class ProcessQueue(NamedTuple):
     '''
@@ -211,15 +217,16 @@ class LanguageCenter(object):
         self.client = PulseClient(config)
         log.info('Loading language-interpreter model...')
         self.model = WhisperModel(
-            config.get('whisper.model', os.getenv('WHISPER_MODEL', 'guillaumekln/faster-whisper-large-v2')),
+            config.get('whisper.model', WHISPER_MODEL),
             device=config.get('whisper.device', 'cuda'),
             compute_type=config.get('whisper.compute_type', 'auto'),
             cpu_threads=os.cpu_count(),
         )
         log.info('Loading vocal chords...')
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        tts_model_name = os.environ.get('TTS_MODEL', 'tts_models/en/jenny/jenny')
-        self.tts = TTS(tts_model_name).to(device)
+        if self.isTTSLocal():
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            tts_model_name = config.get('tts', {}).get('model', TTS_MODEL)
+            self.tts = TTS(tts_model_name).to(device=torch.device(device))
         self.gpt = gpt.LocalGPT(host='chatgpt')
         self.listening = True
 
@@ -231,13 +238,16 @@ class LanguageCenter(object):
     def listening(self, value: bool):
         self.client.listening = value
 
+    def isTTSLocal(self) -> bool:
+        return TTS_TYPE == 'local'
+
     def toText(self, audio: np.ndarray) -> str:
         '''
         Convert the audio received to text quickly.
         '''
         segments, info = self.model.transcribe(
             audio,
-            language=self.config.get('language', 'en'),
+            language=LANGUAGE,
             without_timestamps=True,
             word_timestamps=False,
             vad_filter=True,
@@ -256,16 +266,41 @@ class LanguageCenter(object):
         for audio in self.client.listen():
             yield self.toText(audio)
 
+    def genVoz(self, text: str, q: mp.Queue) -> int:
+        '''
+        Generate speech from text.
+        '''
+        if self.isTTSLocal():
+            wav = self.tts.tts(text, speed=1.0, split_sentences=True)
+            npwav = np.array(wav, dtype=np.float32)
+            audio = np.array(npwav * (32768 / max(0.01, np.max(np.abs(npwav)))), dtype=np.int16)
+            q.put(audio)
+        else:
+            request = urllib3.PoolManager()
+            params = {
+                'text': text,
+                'language': LANGUAGE
+            }
+            response = request.request('GET', 'http://tts/api/tts', fields=params)
+            q.put(np.array(response.data))
+        return 0
+
     def speak(self, text: str):
         '''
         Speak the text to the user.
         '''
         paragraphs = text.split('\n\n')
+        pool: list[ProcessQueue] = []
         for paragraph in paragraphs:
-            wav = self.tts.tts(paragraph, speed=1.0, split_sentences=True)
-            npwav = np.array(wav, dtype=np.float32)
-            audio = np.array(npwav * (32768 / max(0.01, np.max(np.abs(npwav)))), dtype=np.int16)
+            q = mp.Queue()
+            pq = mp.Process(target=self.genVoz, args=(paragraph, q))
+            pool.append(ProcessQueue(pq, q))
+            pq.start()
+
+        for pq in pool:
+            audio = pq.queue.get()
             self.client.speak(audio)
+            pq.process.join()
 
         return audio
 

@@ -30,7 +30,7 @@ with a variety of tasks. You are careful with your words since you only have a f
 at a time.
 """.strip())]
 
-    def converse(self, text: str) -> str:
+    def chatExchange(self, text: str) -> str:
         '''
         Query the local ollama instance with the text.
         '''

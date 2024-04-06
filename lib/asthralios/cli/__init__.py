@@ -1,19 +1,17 @@
 
-import re
 import os, sys
 import argparse
-import time
-import traceback as tb
 from signal import signal, SIGINT
 
 import kizano
 kizano.Config.APP_NAME = 'asthralios'
 log = kizano.getLogger(__name__)
 
-import asthralios.senses.ears as ears
+from asthralios.senses.ears import Conversation
 
-global _running
-_running = False
+ACTIONS = {
+    'converse': Conversation.main
+}
 
 def getOptions() -> dict:
     '''
@@ -33,25 +31,25 @@ def getOptions() -> dict:
     # If any() of the above constant actions is among the unknown arguments, pop it off the list
     # and set the action accordingly.
     # If there is a subsequent resource after the action, assign the resource to the options.
-    # while other:
-    #     arg = other.pop(0)
-    #     if arg in list(Cli.ACTIONS.keys()):
-    #         action = arg
-    #     else:
-    #         opts.resource = arg
-    # if action:
-    #     opts.action = action
-    # else:
-    #     log.error('No action specified!')
-    #     options.print_help()
-    #     return opts.__dict__
-
-    return dict(opts.__dict__)
+    while other:
+        arg = other.pop(0)
+        if arg in list(ACTIONS.keys()):
+            action = arg
+        else:
+            if hasattr(opts, 'resources'):
+                opts.resources.append(arg)
+            else:
+                opts.resources = [arg]
+    if action:
+        opts.action = action
+    else:
+        log.error('No action specified!')
+        options.print_help()
+        return opts.__dict__
+    return opts.__dict__
 
 def interrupt(signal, frame):
     log.error('Caught ^C interrupt, exiting...')
-    global _running
-    _running = False
     sys.exit(8)
 
 def main():
@@ -67,33 +65,8 @@ def main():
     log.debug(config)
     log.info("Asthralios is waking up...")
     signal(SIGINT, interrupt)
-    chat = ears.LanguageCenter(config)
-    chat.speak('Hello, I am Asthralios. How may I help you?')
-    while chat.listening:
-        log.info('Asthralios is listening...')
-        time.sleep(1)
-        try:
-            for query in chat.listen():
-                log.info(f"\x1b[34mRead\x1b[0m: {query}")
-                if query:
-                    response = chat.converse(query)
-                    log.info(f"last message: {response}") # @FutureFeature: Speak the response.
-                    if re.match(r'^pause.*60.*sec(?:ond)?s?$', response.lower(), re.IGNORECASE):
-                        log.info('You asked me to wait a minute...')
-                        time.sleep(60)
-                        continue
-                    chat.speak(response)
-        except KeyboardInterrupt:
-            log.error('Ctrl+C detected... closing my ears ...')
-            chat.listening = False
-        except RuntimeWarning as rw:
-            log.error(f"Model failed: {rw}")
-            log.error('Fatal.')
-            chat.listening = False
-        except Exception as e:
-            log.error(f"Sorry, I missed that: {e}")
-            log.error(tb.format_exc())
-    log.info('Asthralios is going down for maintenance...')
+    action = config.get('action', 'converse')
+    return ACTIONS[action](config)
 
 if __name__ == "__main__":
     sys.exit( main() )

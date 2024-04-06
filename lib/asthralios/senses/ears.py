@@ -4,6 +4,9 @@ import pasimple
 import numpy as np
 import multiprocessing as mp
 import urllib3
+import re
+import time
+import traceback as tb
 from typing import Generator, NamedTuple
 
 import torch
@@ -18,8 +21,9 @@ log = kizano.getLogger(__name__)
 import asthralios.gpt as gpt
 
 WHISPER_MODEL = os.environ.get('WHISPER_MODEL', 'guillaumekln/faster-whisper-large-v2')
-TTS_MODEL = os.environ.get('TTS_MODEL', 'tts_models/en/jenny/jenny')
+TTS_MODEL = os.environ.get('TTS_MODEL', 'tts_models/multilingual/multi-dataset/xtts_v2')
 TTS_TYPE = os.environ.get('TTS_TYPE', 'local')
+TTS_ADAPTER = os.environ.get('ADAPTER', 'api')
 LANGUAGE = os.environ.get('LANGUAGE', 'en')
 
 class ProcessQueue(NamedTuple):
@@ -68,11 +72,15 @@ class PulseClient(object):
         '''
         Clean up the pool of processes.
         '''
-        self.pool.input.process.terminate()
-        self.pool.input.process.join()
+        if self.pool.input.process.is_alive():
+            self.pool.input.process.terminate()
+            if self.pool.input.process._Popen is not None:
+                self.pool.input.process.join()
 
-        self.pool.output.process.terminate()
-        self.pool.output.process.join()
+        if self.pool.output.process.is_alive():
+            self.pool.output.process.terminate()
+            if self.pool.output.process._Popen is not None:
+                self.pool.output.process.join()
 
     @property
     def listening(self) -> bool:
@@ -108,7 +116,7 @@ class PulseClient(object):
             self._istream = pasimple.PaSimple(pasimple.PA_STREAM_RECORD,
                 format=pasimple.PA_SAMPLE_S16LE,
                 channels=1,
-                rate=PulseClient.SAMPLE_SIZE,
+                rate=self.config.get('input_sample_rate', PulseClient.SAMPLE_SIZE),
                 app_name='asthralios',
                 stream_name='asthralios-ears')
         return self._istream
@@ -118,7 +126,7 @@ class PulseClient(object):
             self._ostream = pasimple.PaSimple(pasimple.PA_STREAM_PLAYBACK,
                 format=pasimple.PA_SAMPLE_S16LE,
                 channels=1,
-                rate=48000,
+                rate=self.config.get('output_sample_rate', 48000),
                 app_name='asthralios',
                 stream_name='asthralios-voice')
         return self._ostream
@@ -156,11 +164,11 @@ class PulseClient(object):
         Speak the audio to the output stream.
         Buffer/stream the audio if it is too long.
         '''
-        if len(audio) > self.SAMPLE_SIZE * 3:
-            for i in range(0, len(audio), self.SAMPLE_SIZE):
-                self.pool.output.queue.put(audio[i:i+self.SAMPLE_SIZE])
-        else:
-            self.pool.output.queue.put(audio)
+        # if len(audio) > self.SAMPLE_SIZE * 3:
+        #     for i in range(0, len(audio), self.SAMPLE_SIZE):
+        #         self.pool.output.queue.put(audio[i:i+self.SAMPLE_SIZE])
+        # else:
+        self.pool.output.queue.put(audio)
 
     def listen(self) -> Generator[np.ndarray, None, None]:
         '''
@@ -212,14 +220,21 @@ class PulseClient(object):
         '''
         self.listening = False
 
-class LanguageCenter(object):
+class Conversation(object):
     '''
-    Converts heard audio into something we can manage as text to interpret.
+    Converse with the user:
+    - Open a connection to the audio both as input and output (mic and speakers for voice and ears).
+    - Listen to the user's voice and convert it to text.
+    - Respond to the user's voice with text.
+    - Convert the text to speech and play it back to the user.
+    Do so in a thread-like manner to ensure the main thread is always responsive and we seem like a live
+    conversation (this should tolerate interruptions).
     '''
+
     def __init__(self, config: dict):
         self.config = config
         log.info('Connecting to ears and voicebox...')
-        self.client = PulseClient(config)
+        self.pulse = PulseClient(config)
         log.info('Loading language-interpreter model...')
         self.model = WhisperModel(
             config.get('whisper.model', WHISPER_MODEL),
@@ -229,24 +244,42 @@ class LanguageCenter(object):
         )
         log.info('Loading vocal chords...')
         if self.isTTSLocal():
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            tts_model_name = config.get('tts', {}).get('model', TTS_MODEL)
-            self.tts = TTS(tts_model_name).to(device=torch.device(device))
+            if TTS_ADAPTER == 'api':
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                tts_model_name = config.get('tts', {}).get('model', TTS_MODEL)
+                self.tts = TTS(tts_model_name).to(device=torch.device(device))
+            elif TTS_ADAPTER == 'model':
+                self.loadXTTSModel()
+
         self.gpt = gpt.LocalGPT(host='chatgpt')
         self.listening = True
 
     @property
     def listening(self) -> bool:
-        return self.client.listening
+        return self.pulse.listening
 
     @listening.setter
     def listening(self, value: bool):
-        self.client.listening = value
+        self.pulse.listening = value
 
     def isTTSLocal(self) -> bool:
         return TTS_TYPE == 'local'
 
-    def toText(self, audio: np.ndarray) -> str:
+    def loadXTTSModel(self):
+        '''
+        Directly load the TTSv2 model.
+        '''
+        from TTS.tts.configs.xtts_config import XttsConfig
+        from TTS.tts.models.xtts import Xtts
+        self.xtts_config = XttsConfig()
+        home = os.environ.get('HOME', '/home/stable-diffusion')
+        self.xtts_config.load_json(f"{home}/.local/share/tts/tts_models--multilingual--multi-dataset--xtts_v2/config.json")
+        self.tts = Xtts.init_from_config(self.xtts_config)
+        self.tts.load_checkpoint(self.xtts_config, checkpoint_dir=f"{home}/.local/share/tts/tts_models--multilingual--multi-dataset--xtts_v2/", eval=True)
+        # if torch.cuda.is_available():
+        #     self.tts.cuda()
+
+    def voiceToText(self, audio: np.ndarray) -> str:
         '''
         Convert the audio received to text quickly.
         '''
@@ -256,7 +289,7 @@ class LanguageCenter(object):
             without_timestamps=True,
             word_timestamps=False,
             vad_filter=True,
-            vad_parameters=self.client.vad_options
+            vad_parameters=self.pulse.vad_options
         )
         log.debug(info)
         return ' '.join([ segment.text for segment in segments ])
@@ -268,18 +301,26 @@ class LanguageCenter(object):
         Always have your ears open.
         '''
         if not self.listening: self.listening = True
-        for audio in self.client.listen():
-            yield self.toText(audio)
+        for audio in self.pulse.listen():
+            yield self.voiceToText(audio)
 
-    def genVoz(self, text: str, q: mp.Queue) -> int:
+    def textToVoice(self, text: str, q: mp.Queue) -> int:
         '''
         Generate speech from text.
         '''
         if self.isTTSLocal():
-            wav = self.tts.tts(text, speed=1.0, split_sentences=True)
-            npwav = np.array(wav, dtype=np.float32)
-            audio = np.array(npwav * (32768 / max(0.01, np.max(np.abs(npwav)))), dtype=np.int16)
-            q.put(audio)
+            if TTS_ADAPTER == 'api':
+                wav = self.tts.tts(text, speed=1.0, split_sentences=True)
+                npwav = np.array(wav, dtype=np.float32)
+                audio = np.array(npwav * (32768 / max(0.01, np.max(np.abs(npwav)))), dtype=np.int16)
+                q.put(audio)
+            elif TTS_ADAPTER == 'model':
+                home = os.environ.get('HOME', '/home/stable-diffusion')
+                speaker_wav = f'{home}/.local/share/tts/tts_models--multilingual--multi-dataset--xtts_v2/speaker.wav'
+                wav = self.tts.synthesize(text, config=self.xtts_config, speaker_wav=speaker_wav, language=LANGUAGE)
+                npwav = np.array(wav, dtype=np.float32)
+                audio = np.array(npwav * (32768 / max(0.01, np.max(np.abs(npwav)))), dtype=np.int16)
+                q.put(audio)
         else:
             request = urllib3.PoolManager()
             params = {
@@ -298,13 +339,13 @@ class LanguageCenter(object):
         pool: list[ProcessQueue] = []
         for paragraph in paragraphs:
             q = mp.Queue()
-            pq = mp.Process(target=self.genVoz, args=(paragraph, q))
+            pq = mp.Process(target=self.textToVoice, args=(paragraph, q))
             pool.append(ProcessQueue(pq, q))
             pq.start()
 
         for pq in pool:
             audio = pq.queue.get()
-            self.client.speak(audio)
+            self.pulse.speak(audio)
 
         for pq in pool:
             pq.process.join()
@@ -315,4 +356,48 @@ class LanguageCenter(object):
         '''
         Have a conversation with the user.
         '''
-        return self.gpt.converse(text)
+        return self.gpt.chatExchange(text)
+
+    def stop(self):
+        '''
+        Stop listening for conversation mode.
+        '''
+        self.listening = False
+        return self.pulse.stop()
+
+    @staticmethod
+    def main(config: kizano.Config) -> int:
+        chat = Conversation(config)
+        chat.speak('Hello, I am Asthralios. How may I help you?')
+        while chat.listening:
+            log.info('Asthralios is listening...')
+            time.sleep(1)
+            try:
+                for query in chat.listen():
+                    log.info(f"\x1b[34mRead\x1b[0m: {query}")
+                    if query:
+                        response = chat.converse(query)
+                        log.info(f"last message: {response}")
+                        # Manually tracked requests that I can intercept herre in code.
+                        if re.match(r'pause.*60.*sec(?:ond)?s?', response.lower().strip()):
+                            log.info('You asked me to wait a minute...')
+                            time.sleep(60)
+                            continue
+                        if re.match(r'goodbye|end\s+program', response.lower().strip()):
+                            log.info('Exiting interactive mode...')
+                            chat.listening = False
+                            chat.speak('goodbye and good night')
+                            break
+                        chat.speak(response)
+            except KeyboardInterrupt:
+                log.error('Ctrl+C detected... closing my ears ...')
+                chat.listening = False
+            except RuntimeWarning as rw:
+                log.error(f"Model failed: {rw}")
+                log.error('Fatal.')
+                chat.listening = False
+            except Exception as e:
+                log.error(f"Sorry, I missed that: {e}")
+                log.error(tb.format_exc())
+        log.info('Exiting interactive mode.')
+        return 0

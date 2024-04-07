@@ -40,7 +40,12 @@ def main():
         tts = TTS("tts_models/en/jenny/jenny").to(device=torch.device('cpu'))
     else:
         request = urllib3.PoolManager()
-        response = request.request('GET', 'http://tts/api/tts', fields={'text': text})
+        params = {
+            'text': text,
+            # 'speaker_id': 'Dionisio Schuyler', # Nice deep voice.
+            'speaker_id': 'Filip Traverse', # cute irish accent
+        }
+        response = request.request('GET', 'http://tts/api/tts', fields=params)
     log.info('Done connecting to TTS.')
 
     log.info('Generating a welcome message...')

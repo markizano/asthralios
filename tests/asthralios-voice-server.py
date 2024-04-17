@@ -82,20 +82,15 @@ class VoiceHandler(BaseHTTPRequestHandler):
         # container.pulse.write(audiobin)
         # log.info('Done.')
 
-        try:
-            buffer = io.BytesIO()
-            wavfile.write(buffer, container.xconfig.audio.sample_rate, wav['wav'])
-        except io.UnsupportedOperation as e:
-            log.error(f'Error writing audio to stream: {e}')
+        buffer = io.BytesIO()
+        wavfile.write(buffer, container.xconfig.audio.sample_rate, wav['wav'])
+        clength = len(buffer)
 
         self.send_response(200)
         self.send_header('Content-type', 'audio/wav')
-        buffer.seek(0, io.SEEK_END)
-        self.send_header('Content-length', buffer.tell())
+        self.send_header('Content-length', clength)
         self.end_headers()
-        buffer.seek(0, io.SEEK_SET)
         self.wfile.write(buffer.read())
-
 
 def main():
     '''

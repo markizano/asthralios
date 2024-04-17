@@ -20,6 +20,7 @@ log = kizano.getLogger(__name__)
 
 LANG = os.environ.get('LANGUAGE', 'en')
 HOME = os.environ.get('HOME', '/home/stable-diffusion')
+PLAY_AUDIO = 'PLAY_AUDIO' in os.environ and os.environ['PLAY_AUDIO'].lower() not in ['', '0', 'false', 'no']
 
 class LocalXttsContainer(object):
     _instance = None
@@ -78,13 +79,16 @@ class VoiceHandler(BaseHTTPRequestHandler):
         audio = np.array(npwav * (32767.0 / max(0.01, np.max(np.abs(npwav)))), dtype=np.int16)
         audiobin = audio.tobytes()
 
-        # log.info('> Playing audio...')
-        # container.pulse.write(audiobin)
-        # log.info('Done.')
+        if PLAY_AUDIO:
+            log.info('> Playing audio...')
+            container.pulse.write(audiobin)
+            log.info('Done playing audio.')
 
         buffer = io.BytesIO()
-        wavfile.write(buffer, container.xconfig.audio.sample_rate, wav['wav'])
-        clength = len(buffer)
+        wavfile.write(buffer, container.xconfig.audio.sample_rate, audio)
+        buffer.seek(0, io.SEEK_END)
+        clength = buffer.tell()
+        buffer.seek(0, 0)
 
         self.send_response(200)
         self.send_header('Content-type', 'audio/wav')

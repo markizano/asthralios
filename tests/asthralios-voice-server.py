@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 import sys, os, io
+import time
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'lib')))
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -10,6 +11,7 @@ import pasimple
 import numpy as np
 import scipy.io.wavfile as wavfile
 
+import torch
 from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.models.xtts import Xtts
 from TTS.utils.audio.numpy_transforms import save_wav
@@ -35,7 +37,8 @@ class LocalXttsContainer(object):
         # log.debug(xtts_config.__dict__)
 
         log.info('> Loading checkpoint...')
-        self.model = Xtts(self.xconfig)
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.model = Xtts(self.xconfig).to(device)
         self.model.load_checkpoint(self.xconfig, checkpoint_dir=self.checkpoint_path, eval=True)
         log.info('> Checkpoint loaded.')
 
@@ -70,18 +73,20 @@ class VoiceHandler(BaseHTTPRequestHandler):
         container = LocalXttsContainer.getInstance()
 
         log.info(f'> Synthesizing text: {text}')
+        now = time.time()
         speaker_wav = os.path.join(container.checkpoint_path, 'speaker.wav')
         wav = container.model.synthesize(text, config=container.xconfig, speaker_wav=speaker_wav, language=LANG)
         log.debug(wav.keys())
-        log.info('> Text synthesized.')
+        log.info(f'> Text synthesized in {time.time() - now:.2f}s.')
 
         npwav = wav['wav'].astype(np.float32)
         audio = np.array(npwav * (32767.0 / max(0.01, np.max(np.abs(npwav)))), dtype=np.int16)
         audiobin = audio.tobytes()
 
         if PLAY_AUDIO:
-            log.info('> Playing audio...')
+            log.info(f'> Playing audio for {len(audiobin)} samples...')
             container.pulse.write(audiobin)
+            container.pulse.drain()
             log.info('Done playing audio.')
 
         buffer = io.BytesIO()

@@ -3,7 +3,7 @@ import random
 import pasimple
 import numpy as np
 import multiprocessing as mp
-import urllib3
+import urllib3, urllib
 import re
 import time
 import traceback as tb
@@ -22,8 +22,8 @@ import asthralios.gpt as gpt
 
 WHISPER_MODEL = os.environ.get('WHISPER_MODEL', 'guillaumekln/faster-whisper-large-v2')
 TTS_MODEL = os.environ.get('TTS_MODEL', 'tts_models/multilingual/multi-dataset/xtts_v2')
-TTS_TYPE = os.environ.get('TTS_TYPE', 'local')
-TTS_ADAPTER = os.environ.get('ADAPTER', 'api')
+TTS_TYPE = os.environ.get('TTS_TYPE', 'local').lower()
+TTS_ADAPTER = os.environ.get('ADAPTER', 'api').lower()
 LANGUAGE = os.environ.get('LANGUAGE', 'en')
 
 class ProcessQueue(NamedTuple):
@@ -308,27 +308,34 @@ class Conversation(object):
         '''
         Generate speech from text.
         '''
+        log.info(f'Text to voice: {text}')
         if self.isTTSLocal():
             if TTS_ADAPTER == 'api':
                 wav = self.tts.tts(text, speed=1.0, split_sentences=True)
-                npwav = np.array(wav, dtype=np.float32)
-                audio = np.array(npwav * (32768 / max(0.01, np.max(np.abs(npwav)))), dtype=np.int16)
-                q.put(audio)
             elif TTS_ADAPTER == 'model':
                 home = os.environ.get('HOME', '/home/stable-diffusion')
                 speaker_wav = f'{home}/.local/share/tts/tts_models--multilingual--multi-dataset--xtts_v2/speaker.wav'
                 wav = self.tts.synthesize(text, config=self.xtts_config, speaker_wav=speaker_wav, language=LANGUAGE)
-                npwav = np.array(wav, dtype=np.float32)
-                audio = np.array(npwav * (32768 / max(0.01, np.max(np.abs(npwav)))), dtype=np.int16)
-                q.put(audio)
+            npwav = np.array(wav, dtype=np.float32)
+            audio = np.array(npwav * (32768 / max(0.01, np.max(np.abs(npwav)))), dtype=np.int16)
+            q.put(audio)
         else:
             request = urllib3.PoolManager()
-            params = {
-                'text': text,
-                'language': LANGUAGE
-            }
-            response = request.request('GET', 'http://tts/api/tts', fields=params)
-            q.put(np.array(response.data))
+            TTS_API = os.environ.get('TTS_API', None)
+            if TTS_API == 'tts':
+                params = {
+                    'text': text,
+                    'language': LANGUAGE,
+                    # 'speaker_id': 'Dionisio Schuyler', # Nice deep voice.
+                    'speaker_id': 'Filip Traverse', # cute irish accent
+                }
+                response = request.request('GET', 'http://tts/api/tts', fields=params)
+            elif TTS_API == 'kizano':
+                # urltext = urllib.parse.quote(text)
+                response = request.request('GET', f'http://tts/{text}')
+                return 0 # Return early here because if you are using my API, I will play it from that server.
+            audio = np.frombuffer(response.data, dtype=np.int16)
+            q.put( audio )
         return 0
 
     def speak(self, text: str):
@@ -336,20 +343,23 @@ class Conversation(object):
         Speak the text to the user.
         '''
         paragraphs = text.split('\n\n')
+        log.info(f'Speak paragraphs: {paragraphs}')
         pool: list[ProcessQueue] = []
         for paragraph in paragraphs:
             q = mp.Queue()
             pq = mp.Process(target=self.textToVoice, args=(paragraph, q))
             pool.append(ProcessQueue(pq, q))
             pq.start()
+        log.info(f'started generation of voice clips ({len(pool)})...')
 
-        for pq in pool:
+        for i, pq in enumerate(pool):
             audio = pq.queue.get()
+            log.info(f'Vocalize: {paragraphs[i]}')
             self.pulse.speak(audio)
 
         for pq in pool:
             pq.process.join()
-
+        log.info('Voice clips generated and spoken.')
         return audio
 
     def converse(self, text: str):

@@ -9,3 +9,6 @@ __pycache__
 *.png
 *.pdf
 .vscode
+.venv
+*.egg-info
+build/

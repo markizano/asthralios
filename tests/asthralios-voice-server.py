@@ -27,9 +27,10 @@ PLAY_AUDIO = 'PLAY_AUDIO' in os.environ and os.environ['PLAY_AUDIO'].lower() not
 class LocalXttsContainer(object):
     _instance = None
 
-    def __init__(self):
+    def __init__(self, config: kizano.Config):
         log.info('Loading TTS model...')
         log.info('> New TTSv2 Config...')
+        self.config = config
         self.xconfig = XttsConfig()
         self.checkpoint_path = os.path.join(HOME, '.local', 'share', 'tts', 'tts_models--multilingual--multi-dataset--xtts_v2')
         self.xconfig.load_json(os.path.join(self.checkpoint_path, 'config.json'))
@@ -37,7 +38,8 @@ class LocalXttsContainer(object):
         # log.debug(xtts_config.__dict__)
 
         log.info('> Loading checkpoint...')
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        default_device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        device = torch.device( config.get('device', default_device) )
         self.model = Xtts(self.xconfig).to(device)
         self.model.load_checkpoint(self.xconfig, checkpoint_dir=self.checkpoint_path, eval=True)
         log.info('> Checkpoint loaded.')
@@ -53,9 +55,9 @@ class LocalXttsContainer(object):
         )
 
     @staticmethod
-    def getInstance():
+    def getInstance(config: kizano.Config):
         if LocalXttsContainer._instance is None:
-            LocalXttsContainer._instance = LocalXttsContainer()
+            LocalXttsContainer._instance = LocalXttsContainer(config)
         return LocalXttsContainer._instance
 
 class VoiceHandler(BaseHTTPRequestHandler):
@@ -109,11 +111,10 @@ def main():
     config = kizano.getConfig()
     listen_host = config.get('server', {}).get('host', 'localhost')
     listen_port = config.get('server', {}).get('port', 5003)
-    LocalXttsContainer.getInstance()
+    LocalXttsContainer.getInstance(config)
     server = HTTPServer((listen_host, listen_port), VoiceHandler)
     log.info(f'Server listening on {listen_host}:{listen_port}.')
     server.serve_forever()
-
     return 0
 
 if __name__ == '__main__':

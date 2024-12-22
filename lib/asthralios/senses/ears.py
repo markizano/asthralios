@@ -156,7 +156,7 @@ class PulseClient(object):
                 else:
                     log.debug("(I haven't heard you yet...).")
             audio = self._next_chunk(stream)
-        log.info(f'Heard {silence} seconds of post-speech silence.')
+        log.info(f'Heard {silence} seconds of post-speech silence. Collected {len(result)} samples.')
         return result
 
     def speak(self, audio: np.ndarray):
@@ -283,6 +283,7 @@ class Conversation(object):
         '''
         Convert the audio received to text quickly.
         '''
+        log.info('Voice 2 Text')
         segments, info = self.model.transcribe(
             audio,
             language=LANGUAGE,
@@ -375,39 +376,38 @@ class Conversation(object):
         self.listening = False
         return self.pulse.stop()
 
-    @staticmethod
-    def main(config: kizano.Config) -> int:
-        chat = Conversation(config)
-        chat.speak('Hello, I am Asthralios. How may I help you?')
-        while chat.listening:
-            log.info('Asthralios is listening...')
-            time.sleep(1)
-            try:
-                for query in chat.listen():
-                    log.info(f"\x1b[34mRead\x1b[0m: {query}")
-                    if query:
-                        response = chat.converse(query)
-                        log.info(f"last message: {response}")
-                        # Manually tracked requests that I can intercept herre in code.
-                        if re.match(r'pause.*60.*sec(?:ond)?s?', response.lower().strip()):
-                            log.info('You asked me to wait a minute...')
-                            time.sleep(60)
-                            continue
-                        if re.match(r'goodbye|end\s+program', response.lower().strip()):
-                            log.info('Exiting interactive mode...')
-                            chat.listening = False
-                            chat.speak('goodbye and good night')
-                            break
-                        chat.speak(response)
-            except KeyboardInterrupt:
-                log.error('Ctrl+C detected... closing my ears ...')
-                chat.listening = False
-            except RuntimeWarning as rw:
-                log.error(f"Model failed: {rw}")
-                log.error('Fatal.')
-                chat.listening = False
-            except Exception as e:
-                log.error(f"Sorry, I missed that: {e}")
-                log.error(tb.format_exc())
-        log.info('Exiting interactive mode.')
-        return 0
+def conversate(config: kizano.Config) -> int:
+    chat = Conversation(config)
+    chat.speak('Hello, I am Asthralios. How may I help you?')
+    while chat.listening:
+        log.info('Asthralios is listening...')
+        time.sleep(1)
+        try:
+            for query in chat.listen():
+                log.info(f"\x1b[34mRead\x1b[0m: {query}")
+                if query:
+                    response = chat.converse(query)
+                    log.info(f"last message: {response}")
+                    # Manually tracked requests that I can intercept herre in code.
+                    if re.match(r'pause.*60.*sec(?:ond)?s?', response.lower().strip()):
+                        log.info('You asked me to wait a minute...')
+                        time.sleep(60)
+                        continue
+                    if re.match(r'goodbye|end\s+program', response.lower().strip()):
+                        log.info('Exiting interactive mode...')
+                        chat.listening = False
+                        chat.speak('goodbye and good night')
+                        break
+                    chat.speak(response)
+        except KeyboardInterrupt:
+            log.error('Ctrl+C detected... closing my ears ...')
+            chat.listening = False
+        except RuntimeWarning as rw:
+            log.error(f"Model failed: {rw}")
+            log.error('Fatal.')
+            chat.listening = False
+        except Exception as e:
+            log.error(f"Sorry, I missed that: {e}")
+            log.error(tb.format_exc())
+    log.info('Exiting interactive mode.')
+    return 0

@@ -7,10 +7,12 @@ import kizano
 kizano.Config.APP_NAME = 'asthralios'
 log = kizano.getLogger(__name__)
 
-from asthralios.senses.ears import Conversation
+import asthralios.senses.ears as ears
+import asthralios.senses.hands as hands
 
 ACTIONS = {
-    'converse': Conversation.main
+    'converse': ears.conversate,
+    'ingest': hands.ingest,
 }
 
 def getOptions() -> dict:

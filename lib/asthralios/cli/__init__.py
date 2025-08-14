@@ -1,3 +1,6 @@
+import asthralios.config as config
+# We bootstrap configuration before anything else in the app to ensure env is loaded!
+config.Configuration.getInstance()
 
 import os, sys
 import argparse
@@ -9,10 +12,13 @@ log = kizano.getLogger(__name__)
 
 import asthralios.senses.ears as ears
 import asthralios.senses.hands as hands
+import asthralios.chat as chat
 
 ACTIONS = {
     'converse': ears.conversate,
     'ingest': hands.ingest,
+    'discord': chat.start_discord,
+    'slack': chat.start_slack,
 }
 
 def getOptions() -> dict:

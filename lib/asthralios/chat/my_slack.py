@@ -25,12 +25,12 @@ class ChatAdapterSlack(ChatAdapter):
     '''
 
     def init(self):
-        self.bot = App(token=self.config.slack_bot_token)
-        self.web = WebClient(token=self.config.slack_bot_token)
+        self.bot = App(token=self.config.slack.bot_token)
+        self.web = WebClient(token=self.config.slack.bot_token)
         self.register()
 
     def start(self):
-        handler = SocketModeHandler(self.bot, self.config.slack_app_token)
+        handler = SocketModeHandler(self.bot, self.config.slack.app_token)
         handler.start()
 
     def register(self):
@@ -38,8 +38,8 @@ class ChatAdapterSlack(ChatAdapter):
         Register the event handlers so the bot gets connected to the server.
         '''
         @self.bot.event('app_mention')
-        async def handle_app_mention(event, say):
-            await self._handle_message_event(event, say, is_mention=True)
+        def handle_app_mention(event, say):
+            asyncio.run(self._handle_message_event(event, say, is_mention=True))
 
         @self.bot.event('message')
         def handle_message(event, say):
@@ -142,7 +142,6 @@ class ChatAdapterSlack(ChatAdapter):
                     channel=channel,
                     ts=thread_ts,
                     limit=self.config.chat_context + 1,  # +1 to account for current message
-                    oldest=False
                 )
                 messages = response.get("messages", [])
             else:
@@ -150,7 +149,6 @@ class ChatAdapterSlack(ChatAdapter):
                 response = self.web.conversations_history(
                     channel=channel,
                     limit=self.config.chat_context + 1,  # +1 to account for current message
-                    oldest=False
                 )
                 messages = response.get("messages", [])
 

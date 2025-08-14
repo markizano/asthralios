@@ -1,7 +1,6 @@
 # Imports these names into the current namespace so they are available when imported from here.
-import asthralios.config as config
-from .my_discord import ChatAdapterDiscord
-from .my_slack import ChatAdapterSlack
+from asthralios.chat.my_discord import ChatAdapterDiscord
+from asthralios.chat.my_slack import ChatAdapterSlack
 # from my_msteams import ChatAdapterMSTeams # MS Teams is useless right now. They don't support Python :(
 
 import signal
@@ -10,8 +9,8 @@ import time
 import threading
 from typing import List
 
-import kizano
-log = kizano.getLogger(__name__)
+from asthralios import getLogger
+log = getLogger(__name__)
 
 class ChatManager:
     """
@@ -19,10 +18,10 @@ class ChatManager:
     Handles process lifecycle and signal propagation.
     """
 
-    def __init__(self):
+    def __init__(self, config: dict):
+        self.config = config
         self.processes: List[multiprocessing.Process] = []
         self.running = False
-        self.config = config.getInstance()
 
     def _signal_handler(self, signum, frame):
         """Handle termination signals by stopping all subprocesses."""
@@ -44,14 +43,14 @@ class ChatManager:
         signal.signal(signal.SIGHUP, self._signal_handler)
 
         # Start Discord adapter
-        discord = ChatAdapterDiscord()
+        discord = ChatAdapterDiscord(self.config)
         discord_process = multiprocessing.Process(target=discord.start)
         discord_process.start()
         self.processes.append(discord_process)
         log.info(f"Started Discord adapter with PID {discord_process.pid}")
 
         # Start Slack adapter
-        slack = ChatAdapterSlack()
+        slack = ChatAdapterSlack(self.config)
         slack_process = multiprocessing.Process(target=slack.start)
         slack_process.start()
         self.processes.append(slack_process)
@@ -85,6 +84,11 @@ class ChatManager:
         for process in self.processes:
             try:
                 process.terminate()
+            except Exception as e:
+                log.error(f"Error stopping process {process.pid}: {e}")
+
+        for process in self.processes:
+            try:
                 process.join(timeout=5)
                 if process.is_alive():
                     process.kill()
@@ -97,7 +101,7 @@ class ChatManager:
 
 def start_chat(cfg: dict):
     """Start all configured chat adapters using the unified manager."""
-    manager = ChatManager()
+    manager = ChatManager(cfg)
     manager.start()
 
     # Keep the main thread alive to handle signals

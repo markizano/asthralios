@@ -9,11 +9,10 @@ themselves into this class instance.
 from typing import Awaitable, Iterable
 
 from openai.types.chat import ChatCompletionMessageParam
-import asthralios.config as config
 import openwebui_client.client as oui
 
-from kizano import getLogger
-log = getLogger(__name__)
+import asthralios
+log = asthralios.getLogger(__name__)
 
 def debug_event(event_name: str, **kwargs) -> None:
     log.debug(f"[DEBUG] {event_name}")
@@ -21,12 +20,12 @@ def debug_event(event_name: str, **kwargs) -> None:
         log.debug(f"  - {key}: {value}")
 
 class ChatAdapter(object):
-    def __init__(self):
-        self.config = config.getInstance()
+    def __init__(self, config: asthralios.config.Configuration):
+        self.config = config
         self.llm = oui.OpenWebUIClient(
-            base_url=self.config.oui_base_url,
-            api_key=self.config.oui_api_key,
-            default_model=self.config.oui_model,
+            base_url=self.config.oui.base_url,
+            api_key=self.config.oui.api_key,
+            default_model=self.config.oui.model,
         )
         self.init()
 
@@ -35,7 +34,7 @@ class ChatAdapter(object):
         Handler for when a message is received.
         '''
         # Attempt to get the system prompt.
-        system_prompt = open(self.config.oui_system_prompt_file).read() or 'You are a helpful Discord bot.'
+        system_prompt = open(self.config.oui.system_prompt_file).read() or 'You are a helpful Discord bot.'
         # Get the Adapter implementation chat history.
         chat_history = await self.get_message_history()
 

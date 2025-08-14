@@ -26,7 +26,7 @@ class ChatAdapterDiscord(ChatAdapter):
         self.register()
 
     def start(self):
-        self.bot.run(self.config.discord_bot_token)
+        self.bot.run(self.config.discord.bot_token)
 
     def register(self):
         '''

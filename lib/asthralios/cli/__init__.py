@@ -10,14 +10,14 @@ import kizano
 kizano.Config.APP_NAME = 'asthralios'
 log = kizano.getLogger(__name__)
 
+import asthralios
 import asthralios.senses.ears as ears
 import asthralios.senses.hands as hands
-import asthralios.chat as chat
 
 ACTIONS = {
     'converse': ears.conversate,
     'ingest': hands.ingest,
-    'chat': chat.start_chat,
+    'chat': asthralios.chat.start_chat,
 }
 
 def getOptions() -> dict:
@@ -66,13 +66,15 @@ def main():
     import kizano.logger
     log.info('Good morning.')
     kizano.log.setLevel(kizano.logger.logging.CRITICAL)
-    config = kizano.getConfig()
+    config = asthralios.config.getInstance()
     opts = getOptions()
-    config = kizano.utils.dictmerge(opts, config)
+    # Command line takes precedence over config.
+    for name, value in opts.items():
+        config.config[name] = value
     log.debug(config)
     log.info("Asthralios is waking up...")
     signal(SIGINT, interrupt)
-    action = config.get('action', 'converse')
+    action = config.config.get('action', 'converse')
     return ACTIONS[action](config)
 
 if __name__ == "__main__":

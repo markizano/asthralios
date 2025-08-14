@@ -33,12 +33,15 @@ class Configuration(object):
 
     def loadenv(self):
         self.config = {
+            # If True, must @ bot for it to respond. If False, it will respond to anything but itself.
+            'chat_must_mention': os.getenv('CHAT_MUST_MENTION', ''),
+            'chat_context': int(os.getenv('CHAT_CONTEXT', '5')),
+
             # Open WebUI Configurations
             'oui_base_url': os.getenv('OUI_BASE_URL', 'http://localhost:3000/api'),
             'oui_api_key': os.getenv('OUI_API_KEY', ''),
             'oui_model': os.getenv('OUI_MODEL', 'gpt-5'),
             'oui_system_prompt_file': os.getenv('OUI_SYSTEM_PROMPT_FILE', 'system-prompt.md'),
-            'oui_chat_context': os.getenv('OUI_CHAT_CONTEXT', '5'),
 
             # Slack Configuration
             'slack_bot_token': os.getenv('SLACK_BOT_TOKEN', ''),
@@ -46,3 +49,6 @@ class Configuration(object):
 
             'discord_bot_token': os.getenv('DISCORD_BOT_TOKEN', ''),
         }
+
+def getInstance() -> Configuration:
+    return Configuration.getInstance()

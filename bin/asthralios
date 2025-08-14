@@ -1,4 +1,6 @@
 #!/bin/bash
 
 # mostly used for testing.
-PYTHONPATH=lib python3 -m asthralios.cli $@
+export PYTHONPATH=lib
+PYTHONEXE=`test -x .venv/bin/python3 && echo .venv/bin/python3 || echo python3`
+$PYTHONEXE -m asthralios.cli $@

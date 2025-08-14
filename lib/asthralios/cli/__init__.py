@@ -17,8 +17,7 @@ import asthralios.chat as chat
 ACTIONS = {
     'converse': ears.conversate,
     'ingest': hands.ingest,
-    'discord': chat.start_discord,
-    'slack': chat.start_slack,
+    'chat': chat.start_chat,
 }
 
 def getOptions() -> dict:

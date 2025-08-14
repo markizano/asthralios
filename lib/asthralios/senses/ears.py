@@ -207,7 +207,7 @@ class PulseClient(object):
         except pasimple.PaSimpleError as e:
             log.error(f"Error creating output: {e}")
             return 1
-        
+
         audio: np.ndarray = q.get()
         while audio is not None:
             stream.write(audio.tobytes())

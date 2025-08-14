@@ -10,7 +10,7 @@ class WhisperASR(ASRInterface):
 
     async def transcribe(self, client):
         file_path = await save_audio_to_file(client.scratch_buffer, client.get_file_name())
-        
+
         if client.config['language'] is not None:
             to_return = self.asr_pipeline(file_path, generate_kwargs={"language": client.config['language']})['text']
         else:

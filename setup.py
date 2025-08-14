@@ -11,9 +11,11 @@ setup_opts = {
     # We change this default each time we tag a release.
     'version'             : '1.0.0',
     'description'         : "Markizano's Assistant",
-    'long_description'    : ('My Personal Assistant. I will use this to be able to understand AI'
-                             'and how to interact with it from a programming perspective. This will be my means to'
-                             'de-Google my life and to be able to have a personal assistant that I know what trained it.'),
+    'long_description'    : (
+        'My Personal Assistant. I will use this to be able to understand AI'
+        'and how to interact with it from a programming perspective. For research and education'
+        'purposes only. Not originally intended to be used in any production capacity.'
+    ),
     'long_description_content_type': 'text/markdown',
     'author'              : 'Markizano Draconus',
     'author_email'        : 'support@markizano.net',
@@ -21,53 +23,18 @@ setup_opts = {
     'license'             : 'GNU',
 
     'tests_require'       : ['pytest', 'unittest'],
-    'install_requires'    : [
-        'PyYAML>=6.0.1',
-        'kizano',
-        'ffmpeg-python',
-        'nvidia-pyindex',
-        'nvidia-cudnn',
-        'nvidia-cublas-cu11',
-        'nvidia-cublas-cu12',
-        'nvidia-cuda-cupti-cu12',
-        'nvidia-cuda-nvrtc-cu11',
-        'nvidia-cuda-nvrtc-cu12',
-        'nvidia-cuda-runtime-cu11',
-        'nvidia-cuda-runtime-cu12',
-        'nvidia-cudnn-cu11',
-        'nvidia-cudnn-cu12',
-        'nvidia-cufft-cu12',
-        'nvidia-curand-cu12',
-        'nvidia-cusolver-cu12',
-        'nvidia-cusparse-cu12',
-        'nvidia-nccl-cu12',
-        'nvidia-nvjitlink-cu12',
-        'nvidia-nvtx-cu12',
-        'openai==1.43.0',
-        'openai-whisper',
-        'faster-whisper',
-        'pasimple==0.0.3',
-        'psycopg2==2.9.10',
-        'unstructured==0.16.11',
-        'numba==0.60.0',
-        'langchain==0.2.15',
-        'langchain-community==0.2.15',
-        'langchain-core==0.2.37',
-        'langchain-ollama==0.1.3',
-        'langchain-postgres==0.0.9',
-        'langchain-text-splitters==0.2.2',
-        'TTS==0.22.0',
-        'requests'
-    ],
+    'install_requires'    : [line for line in open('requirements.txt').read().splitlines() if len(line)],
     'package_dir'         : { 'asthralios': 'lib/asthralios' },
+
+    'include_package_data': True,
     'packages'            : [
-      'asthralios', 'asthralios.cli'
+        'asthralios', 'asthralios.cli'
     ],
     'scripts'             : glob('bin/*'),
     'entry_points': {
-      'console_scripts': [
-        'asthralios = asthralios.cli:main'
-      ],
+        'console_scripts': [
+            'asthralios = asthralios.cli:main'
+        ],
     },
     'test_suite'          : 'tests',
 }
@@ -79,10 +46,6 @@ except:
     HAS_ARGPARSE = False
 
 if not HAS_ARGPARSE: setup_opts['install_requires'].append('argparse')
-
-# I botch this too many times.
-if sys.argv[1] == 'test':
-    sys.argv[1] = 'nosetests'
 
 if 'DEBUG' in os.environ: pprint(setup_opts)
 

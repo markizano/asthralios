@@ -17,6 +17,9 @@ class ChatAdapterDiscord(ChatAdapter):
     Adapter interface to take the "rough edges" off of talking to Discord.
     '''
 
+    def mesgLimit(self):
+        return 2000
+
     def init(self):
         intents = discord.Intents.default()
         intents.message_content = True

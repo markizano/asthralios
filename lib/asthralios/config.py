@@ -17,6 +17,8 @@ class Configuration(object):
         return Configuration._instance
 
     def __init__(self):
+        import kizano.logger
+        kizano.log.setLevel(kizano.logger.logging.CRITICAL)
         self.config = EasyDict(kizano.getConfig())
 
     # Method to return any config.some_key as a magic return.

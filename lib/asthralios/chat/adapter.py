@@ -52,7 +52,8 @@ class ChatAdapter(object):
             response = self.llm.chat.completions.create(
                 messages=messages,
                 model=self.llm.default_model or "gpt-5",
-                stream=False
+                stream=False,
+                max_tokens=1024,
             )
             reply = response.choices[0].message.content if response.choices else "Sorry, I couldn't generate a response."
         except Exception as e:
@@ -69,7 +70,7 @@ class ChatAdapter(object):
             'do_message_send',
             reply=reply
         )
-        msg_limit = 4000
+        msg_limit = self.mesgLimit()
         if reply:
             if len(reply) > msg_limit:
                 # Paginate the response.
@@ -89,4 +90,7 @@ class ChatAdapter(object):
         raise NotImplemented(__name__)
 
     async def get_message_history(self) -> Iterable[ChatCompletionMessageParam]:
+        raise NotImplemented(__name__)
+
+    def mesgLimit(self):
         raise NotImplemented(__name__)

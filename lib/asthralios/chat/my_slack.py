@@ -24,6 +24,9 @@ class ChatAdapterSlack(ChatAdapter):
     Adapter interface to take the "rough edges" off of talking to Slack.
     '''
 
+    def mesgLimit(self):
+        return 4000
+
     def init(self):
         self.bot = App(token=self.config.slack.bot_token)
         self.web = WebClient(token=self.config.slack.bot_token)

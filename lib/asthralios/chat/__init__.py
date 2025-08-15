@@ -89,7 +89,7 @@ class ChatManager:
 
         for process in self.processes:
             try:
-                process.join(timeout=5)
+                process.join(timeout=1)
                 if process.is_alive():
                     process.kill()
                     process.join()

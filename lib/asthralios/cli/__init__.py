@@ -63,9 +63,7 @@ def main():
     '''
     entrypoint.
     '''
-    import kizano.logger
     log.info('Good morning.')
-    kizano.log.setLevel(kizano.logger.logging.CRITICAL)
     config = asthralios.config.getInstance()
     opts = getOptions()
     # Command line takes precedence over config.

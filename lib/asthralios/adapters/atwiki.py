@@ -1,14 +1,12 @@
 '''
 Enables the searching and collecting of relevant wiki pages.
 '''
-from asthralios import config
+from asthralios import config, getLogger
 from atlassian import Confluence
-import logging
 from typing import Generator, Dict, Optional, List
-import json
 
 # Set up logging
-logger = logging.getLogger(__name__)
+log = getLogger(__name__)
 
 class AtlassianWiki:
     """
@@ -40,14 +38,15 @@ class AtlassianWiki:
 
             # Test authentication by getting user info
             try:
-                user_info = self.wiki.get_user_info()
-                logger.info(f"Successfully authenticated to Atlassian Confluence as: {user_info.get('displayName', 'Unknown')}")
+                # Use a method that actually exists in Confluence API
+                self.wiki.get_all_spaces(limit=1)
+                log.info(f"Successfully authenticated to Atlassian Confluence")
             except Exception as e:
-                logger.error(f"Failed to authenticate to Atlassian Confluence: {e}")
+                log.error(f"Failed to authenticate to Atlassian Confluence: {e}")
                 raise
 
         except Exception as e:
-            logger.error(f"Failed to initialize Atlassian Confluence client: {e}")
+            log.error(f"Failed to initialize Atlassian Confluence client: {e}")
             raise
 
     def list_pages(self, space_key: Optional[str] = None,
@@ -115,15 +114,18 @@ class AtlassianWiki:
                     yield page_info
 
                 # Check if we've reached the end
+                # If we got fewer pages than requested, we've reached the end
                 if len(pages) < limit:
                     break
 
+                # If we got exactly the limit, there might be more pages
+                # Continue to the next page
                 start += limit
 
-            logger.info(f"Retrieved {total_pages} pages from Confluence")
+            log.info(f"Retrieved {total_pages} pages from Confluence")
 
         except Exception as e:
-            logger.error(f"Failed to list pages: {e}")
+            log.error(f"Failed to list pages: {e}")
             raise
 
     def get_page_by_title(self, title: str, space_key: Optional[str] = None) -> Optional[Dict]:
@@ -173,14 +175,14 @@ class AtlassianWiki:
                         'expandable': page.get('_expandable', {})
                     }
 
-                    logger.info(f"Found page '{title}' with ID: {page_info['id']}")
+                    log.info(f"Found page '{title}' with ID: {page_info['id']}")
                     return page_info
 
-            logger.warning(f"Page with title '{title}' not found")
+            log.warning(f"Page with title '{title}' not found")
             return None
 
         except Exception as e:
-            logger.error(f"Failed to get page by title '{title}': {e}")
+            log.error(f"Failed to get page by title '{title}': {e}")
             raise
 
     def get_page_content(self, page_id: str, expand: Optional[List[str]] = None) -> Dict:
@@ -233,11 +235,11 @@ class AtlassianWiki:
                 }
             }
 
-            logger.info(f"Retrieved content for page '{content_info['title']}' (ID: {page_id})")
+            log.info(f"Retrieved content for page '{content_info['title']}' (ID: {page_id})")
             return content_info
 
         except Exception as e:
-            logger.error(f"Failed to get page content for ID {page_id}: {e}")
+            log.error(f"Failed to get page content for ID {page_id}: {e}")
             raise
 
     def search_pages(self, query: str, space_key: Optional[str] = None,
@@ -288,11 +290,11 @@ class AtlassianWiki:
                 }
                 pages.append(page_info)
 
-            logger.info(f"Search for '{query}' returned {len(pages)} results")
+            log.info(f"Search for '{query}' returned {len(pages)} results")
             return pages
 
         except Exception as e:
-            logger.error(f"Failed to search for pages with query '{query}': {e}")
+            log.error(f"Failed to search for pages with query '{query}': {e}")
             raise
 
     def get_space_info(self, space_key: str) -> Optional[Dict]:
@@ -321,11 +323,11 @@ class AtlassianWiki:
                 'url': f"{self.wiki.url}/wiki/spaces/{space_key}"
             }
 
-            logger.info(f"Retrieved space information for '{space_key}'")
+            log.info(f"Retrieved space information for '{space_key}'")
             return space_info
 
         except Exception as e:
-            logger.error(f"Failed to get space info for '{space_key}': {e}")
+            log.error(f"Failed to get space info for '{space_key}': {e}")
             return None
 
     def list_spaces(self, space_type: str = "global") -> List[Dict]:
@@ -357,11 +359,11 @@ class AtlassianWiki:
                 }
                 space_list.append(space_info)
 
-            logger.info(f"Retrieved {len(space_list)} spaces")
+            log.info(f"Retrieved {len(space_list)} spaces")
             return space_list
 
         except Exception as e:
-            logger.error(f"Failed to list spaces: {e}")
+            log.error(f"Failed to list spaces: {e}")
             raise
 
     def __del__(self):
@@ -371,4 +373,4 @@ class AtlassianWiki:
                 # Close any open connections if needed
                 pass
         except Exception as e:
-            logger.warning(f"Error during cleanup: {e}")
+            log.warning(f"Error during cleanup: {e}")

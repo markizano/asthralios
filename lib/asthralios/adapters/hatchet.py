@@ -1,16 +1,12 @@
 
-from asthralios import config
+from asthralios import config, getLogger
 import github
 import tempfile
 import os
 import requests
 from typing import List, Dict, Optional, Generator, Union
-import logging
 
-# Set up logging
-logger = logging.getLogger(__name__)
-
-ACCESS_TOKEN = config.getInstance().github.access_token
+log = getLogger(__name__)
 
 class Hatchet:
     """
@@ -25,19 +21,18 @@ class Hatchet:
         Args:
             org (str): GitHub organization name
         """
-        if not ACCESS_TOKEN:
+        # Get config instance and check for access token
+        self.config = config.getInstance()
+        if not self.config.github.access_token:
             raise ValueError("GitHub access token not configured")
 
         try:
-            auth = github.Auth.Token(ACCESS_TOKEN)
+            auth = github.Auth.Token(self.config.github.access_token)
             self.github = github.Github(auth=auth)
             self.org = self.github.get_organization(org)
-            logger.info(f"Successfully authenticated to GitHub organization: {org}")
-        except github.GithubException as e:
-            logger.error(f"Failed to authenticate to GitHub: {e}")
-            raise
+            log.info(f"Successfully authenticated to GitHub organization: {org}")
         except Exception as e:
-            logger.error(f"Unexpected error during GitHub authentication: {e}")
+            log.error(f"Failed to authenticate to GitHub or access organization: {e}")
             raise
 
     def get_repos(self, visibility: str = "all") -> List[Dict]:
@@ -71,14 +66,14 @@ class Hatchet:
                 }
                 repos.append(repo_info)
 
-            logger.info(f"Retrieved {len(repos)} repositories from organization")
+            log.info(f"Retrieved {len(repos)} repositories from organization")
             return repos
 
         except github.GithubException as e:
-            logger.error(f"Failed to retrieve repositories: {e}")
+            log.error(f"Failed to retrieve repositories: {e}")
             raise
         except Exception as e:
-            logger.error(f"Unexpected error retrieving repositories: {e}")
+            log.error(f"Unexpected error retrieving repositories: {e}")
             raise
 
     def get_workflows(self, repo_name: str) -> List[Dict]:
@@ -108,14 +103,14 @@ class Hatchet:
                 }
                 workflow_list.append(workflow_info)
 
-            logger.info(f"Retrieved {len(workflow_list)} workflows from repository: {repo_name}")
+            log.info(f"Retrieved {len(workflow_list)} workflows from repository: {repo_name}")
             return workflow_list
 
         except github.GithubException as e:
-            logger.error(f"Failed to retrieve workflows for {repo_name}: {e}")
+            log.error(f"Failed to retrieve workflows for {repo_name}: {e}")
             raise
         except Exception as e:
-            logger.error(f"Unexpected error retrieving workflows for {repo_name}: {e}")
+            log.error(f"Unexpected error retrieving workflows for {repo_name}: {e}")
             raise
 
     def get_workflow_runs(self, repo_name: str, workflow_id: Optional[int] = None,
@@ -169,14 +164,14 @@ class Hatchet:
                 }
                 runs_list.append(run_info)
 
-            logger.info(f"Retrieved {len(runs_list)} workflow runs from repository: {repo_name}")
+            log.info(f"Retrieved {len(runs_list)} workflow runs from repository: {repo_name}")
             return runs_list
 
         except github.GithubException as e:
-            logger.error(f"Failed to retrieve workflow runs for {repo_name}: {e}")
+            log.error(f"Failed to retrieve workflow runs for {repo_name}: {e}")
             raise
         except Exception as e:
-            logger.error(f"Unexpected error retrieving workflow runs for {repo_name}: {e}")
+            log.error(f"Unexpected error retrieving workflow runs for {repo_name}: {e}")
             raise
 
     def get_workflow_status(self, repo_name: str, run_id: int) -> Dict:
@@ -241,14 +236,14 @@ class Hatchet:
                 'failed_jobs': len([j for j in jobs_list if j['conclusion'] == 'failure'])
             }
 
-            logger.info(f"Retrieved status for workflow run {run_id} from repository: {repo_name}")
+            log.info(f"Retrieved status for workflow run {run_id} from repository: {repo_name}")
             return status_info
 
         except github.GithubException as e:
-            logger.error(f"Failed to retrieve workflow status for run {run_id} in {repo_name}: {e}")
+            log.error(f"Failed to retrieve workflow status for run {run_id} in {repo_name}: {e}")
             raise
         except Exception as e:
-            logger.error(f"Unexpected error retrieving workflow status for run {run_id} in {repo_name}: {e}")
+            log.error(f"Unexpected error retrieving workflow status for run {run_id} in {repo_name}: {e}")
             raise
 
     def get_workflow_logs(self, repo_name: str, run_id: int,
@@ -276,10 +271,10 @@ class Hatchet:
                 raise ValueError("output_format must be either 'file' or 'stream'")
 
         except github.GithubException as e:
-            logger.error(f"Failed to retrieve workflow logs for run {run_id} in {repo_name}: {e}")
+            log.error(f"Failed to retrieve workflow logs for run {run_id} in {repo_name}: {e}")
             raise
         except Exception as e:
-            logger.error(f"Unexpected error retrieving workflow logs for run {run_id} in {repo_name}: {e}")
+            log.error(f"Unexpected error retrieving workflow logs for run {run_id} in {repo_name}: {e}")
             raise
 
     def _download_logs_to_file(self, run) -> str:
@@ -305,7 +300,7 @@ class Hatchet:
 
             # Download logs using the logs URL
             logs_url = run.logs_url
-            headers = {'Authorization': f'token {ACCESS_TOKEN}'}
+            headers = {'Authorization': f'token {self.config.github.access_token}'}
 
             response = requests.get(logs_url, headers=headers, stream=True)
             response.raise_for_status()
@@ -314,14 +309,14 @@ class Hatchet:
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
 
-            logger.info(f"Downloaded workflow logs to temporary file: {temp_file_path}")
+            log.info(f"Downloaded workflow logs to temporary file: {temp_file_path}")
             return temp_file_path
 
         except requests.RequestException as e:
-            logger.error(f"Failed to download logs: {e}")
+            log.error(f"Failed to download logs: {e}")
             raise
         except Exception as e:
-            logger.error(f"Unexpected error downloading logs: {e}")
+            log.error(f"Unexpected error downloading logs: {e}")
             raise
 
     def _stream_logs(self, run) -> Generator[str, None, None]:
@@ -336,7 +331,7 @@ class Hatchet:
         """
         try:
             logs_url = run.logs_url
-            headers = {'Authorization': f'token {ACCESS_TOKEN}'}
+            headers = {'Authorization': f'token {self.config.github.access_token}'}
 
             response = requests.get(logs_url, headers=headers, stream=True)
             response.raise_for_status()
@@ -346,10 +341,10 @@ class Hatchet:
                     yield chunk
 
         except requests.RequestException as e:
-            logger.error(f"Failed to stream logs: {e}")
+            log.error(f"Failed to stream logs: {e}")
             raise
         except Exception as e:
-            logger.error(f"Unexpected error streaming logs: {e}")
+            log.error(f"Unexpected error streaming logs: {e}")
             raise
 
     def cleanup_temp_file(self, file_path: str) -> None:
@@ -362,9 +357,9 @@ class Hatchet:
         try:
             if os.path.exists(file_path):
                 os.unlink(file_path)
-                logger.info(f"Cleaned up temporary file: {file_path}")
+                log.info(f"Cleaned up temporary file: {file_path}")
         except Exception as e:
-            logger.warning(f"Failed to cleanup temporary file {file_path}: {e}")
+            log.warning(f"Failed to cleanup temporary file {file_path}: {e}")
 
     def __del__(self):
         """Cleanup method to ensure proper resource cleanup."""
@@ -372,4 +367,4 @@ class Hatchet:
             if hasattr(self, 'github'):
                 self.github.close()
         except Exception as e:
-            logger.warning(f"Error during cleanup: {e}")
+            log.warning(f"Error during cleanup: {e}")

@@ -1,0 +1,1 @@
+# Adapters test package initialization

@@ -4,7 +4,7 @@ Example usage of the Hatchet class for GitHub workflow management and log fetchi
 This demonstrates all the main functionality of the Hatchet class.
 """
 
-from hatchet import Hatchet
+from asthralios.adapters.hatchet import Hatchet
 import logging
 
 # Set up logging to see what's happening

@@ -14,3 +14,4 @@ __pycache__
 build/
 .env
 dist
+.pytest_cache

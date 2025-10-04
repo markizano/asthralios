@@ -13,11 +13,13 @@ log = kizano.getLogger(__name__)
 import asthralios
 import asthralios.senses.ears as ears
 import asthralios.senses.hands as hands
+import asthralios.chat.agentic as agentic
 
 ACTIONS = {
     'converse': ears.conversate,
     'ingest': hands.ingest,
     'chat': asthralios.chat.start_chat,
+    'agent': agentic.start_agent,
 }
 
 def getOptions() -> dict:
@@ -29,6 +31,7 @@ def getOptions() -> dict:
     options.add_argument("--language", type=str, default="en", help="Language of the video")
     options.add_argument("--log-level", metavar='log_level', type=str, default="INFO",
                         help="Verbosity of the logger", choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'])
+    options.add_argument('--model', type=str, default="gpt-oss:20b", help="Model to use for the chat")
 
     opts, other = options.parse_known_args()
     if not 'LOG_LEVEL' in os.environ:
@@ -64,16 +67,16 @@ def main():
     entrypoint.
     '''
     log.info('Good morning.')
-    config = asthralios.config.getInstance()
+    cfg = asthralios.config.getInstance()
     opts = getOptions()
     # Command line takes precedence over config.
     for name, value in opts.items():
-        config.config[name] = value
-    log.debug(config)
+        cfg.config[name] = value
+    log.debug(cfg)
     log.info("Asthralios is waking up...")
     signal(SIGINT, interrupt)
-    action = config.config.get('action', 'converse')
-    return ACTIONS[action](config)
+    action = cfg.config.get('action', 'converse')
+    return ACTIONS[action](cfg.config)
 
 if __name__ == "__main__":
     sys.exit( main() )

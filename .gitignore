@@ -15,3 +15,4 @@ build/
 .env
 dist
 .pytest_cache
+uv.lock

@@ -376,7 +376,7 @@ class Conversation(object):
         self.listening = False
         return self.pulse.stop()
 
-def conversate(config: kizano.Config) -> int:
+def conversate(config: dict) -> int:
     chat = Conversation(config)
     chat.speak('Hello, I am Asthralios. How may I help you?')
     while chat.listening:

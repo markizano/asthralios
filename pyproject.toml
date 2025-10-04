@@ -1,0 +1,49 @@
+[project]
+name = "asthralios"
+version = "1.0.0"
+description = "Markizano's Assistant"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "atlassian-python-api==4.0.4",
+    "discord-py==2.6.0",
+    "faster-whisper>=1.2.0",
+    "gnupg==2.3.1",
+    "kizano==1.0.6",
+    "langchain-community>=0.3.21",
+    "langchain-core>=0.3.76",
+    "langchain-ollama>=0.3.8",
+    "langchain-postgres>=0.0.15",
+    "langchain-text-splitters>=0.3.11",
+    "langchain[ollama]>=0.3.27",
+    "langgraph>=0.6.8",
+    "numba==0.60.0",
+    "openai==1.99.9",
+    "openai-whisper==20250625",
+    "openwebui-client==0.3.2",
+    "pasimple==0.0.3",
+    "psycopg2==2.9.10",
+    "pygithub==2.7.0",
+    "python-dotenv==1.1.1",
+    "python-ffmpeg==2.0.12",
+    "pyyaml>=6.0.1",
+    "requests==2.32.3",
+    "slack-bolt==1.23.0",
+    "slack-sdk==3.36.0",
+    "tts==0.22.0",
+    "unstructured==0.16.11",
+]
+authors = [
+    { name = "Markizano Draconus", email = "python@markizano.net" },
+]
+maintainers = [
+    { name = "Markizano Draconus", email = "python@markizano.net" },
+]
+keywords = [ "ai", "artificial intelligence", "agentic", "langchain" ]
+
+[project.urls]
+homepage = "https://markizano.net/"
+repository = "https://github.com/markizano/asthralios"
+
+[project.entry-points]
+asthralios = "asthralios.cli:main"

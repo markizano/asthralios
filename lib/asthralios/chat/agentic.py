@@ -1,6 +1,7 @@
 from kizano import getLogger
 from typing import Annotated, Literal
 from langgraph.graph import StateGraph, START, END
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.graph.message import add_messages
 from langchain.chat_models import init_chat_model
 from pydantic import BaseModel, Field
@@ -108,8 +109,8 @@ class ChatAgent:
     def classifier(self, state: State) -> dict:
         struct_llm = self.llm.with_structured_output(MessageClassifier)
         response = struct_llm.invoke([
-            {'role': 'system', 'content': CLASSIFIER_PROMPT},
-            {'role': 'user', 'content': state['messages'][-1].content}
+            SystemMessage(content=CLASSIFIER_PROMPT),
+            HumanMessage(content=state['messages'][-1].content)
         ])
         log.debug(f'Classified as: {response.message_type}')
         return {'message_type': response.message_type}
@@ -121,7 +122,7 @@ class ChatAgent:
     def information(self, state: State):
         log.info('Routed to information()')
         request = [
-            {'role': 'system', 'content': INFORMATION_PROMPT},
+            SystemMessage(content=INFORMATION_PROMPT),
         ]
         request.extend(state['messages'])
         response = self.llm.invoke(request)
@@ -137,8 +138,8 @@ class ChatAgent:
         support_llm = self.llm.with_structured_output(SupportCase)
         # Load the structured state.
         support_case = support_llm.invoke([
-            {'role': 'system', 'content': SUPPORT_VALIDATION_PROMPT},
-            {'role': 'user', 'content': state['messages'][-1].content}
+            SystemMessage(content=SUPPORT_VALIDATION_PROMPT),
+            HumanMessage(content=state['messages'][-1].content)
         ])
         # Shallow copy of messages
         support_messages = [*state['messages']]
@@ -146,17 +147,17 @@ class ChatAgent:
         while not support_case.is_valid():
             # Iterate asking questions until we get all the details.
             request = [
-                {'role': 'system', 'content': SUPPORT_PROMPT},
+                SystemMessage(content=SUPPORT_PROMPT),
             ]
             # Make sure the model can see the conversation context.
             request.extend(support_messages)
             response = self.llm.invoke(request)
-            support_messages.append({'role': 'assistant', 'content': response.content})
+            support_messages.append(AIMessage(content=response.content))
             print(f'\x1b[34mSupport\x1b[0m: {response.content}')
             user_message = input('\x1b[32mSupport\x1b[0m: ')
-            support_messages.append({'role': 'user', 'content': user_message})
+            support_messages.append(HumanMessage(content=user_message))
             support_request = [
-                {'role': 'system', 'content': SUPPORT_VALIDATION_PROMPT},
+                SystemMessage(content=SUPPORT_VALIDATION_PROMPT),
             ]
             support_request.extend(support_messages)
             support_case = support_llm.invoke(support_request)
@@ -164,16 +165,16 @@ class ChatAgent:
 
         log.info(f'Support case: {support_case.model_dump_json()}')
         log.warning('This is where I would create a JIRA ticket for the SRE folks and send a notification to the team.')
-        return {'messages': [{'role': 'assistant', 'content': support_case.model_dump_json()}]}
+        return {'messages': [AIMessage(content=support_case.model_dump_json())]}
 
     def action(self, state: State):
         log.info('Routed to action()')
         request = [
-            {'role': 'system', 'content': ACTION_PROMPT},
+            SystemMessage(content=ACTION_PROMPT),
         ]
         request.extend(state['messages'])
         response = self.llm.invoke(request)
-        return {'messages': [{'role': 'assistant', 'content': response.content}]}
+        return {'messages': [AIMessage(content=response.content)]}
 
 
     def chatloop(self):
@@ -192,11 +193,11 @@ class ChatAgent:
                 print('Goodbye!')
                 break
 
-            state['messages'].append({'role': 'user', 'content': message})
+            state['messages'].append(HumanMessage(content=message))
             state = self.graph.invoke(state)
             log.debug('Message count: ' + str(len(state['messages'])))
 
-            print(f'Assistant: {state["messages"][-1].content}')
+            print(f'{state["messages"][-1].type}: {state["messages"][-1].content}')
         return 0
 
 

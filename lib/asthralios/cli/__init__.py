@@ -1,3 +1,11 @@
+'''
+Command line interface for Asthralios.
+This is the main entrypoint for the application.
+'''
+
+from dotenv import load_dotenv
+load_dotenv()
+
 import asthralios.config as config
 # We bootstrap configuration before anything else in the app to ensure env is loaded!
 config.Configuration.getInstance()
@@ -11,15 +19,13 @@ kizano.Config.APP_NAME = 'asthralios'
 log = kizano.getLogger(__name__)
 
 import asthralios
-import asthralios.senses.ears as ears
-import asthralios.senses.hands as hands
-import asthralios.chat.agentic as agentic
 
 ACTIONS = {
-    'converse': ears.conversate,
-    'ingest': hands.ingest,
+    'converse': asthralios.senses.conversate,
+    'ingest': asthralios.senses.ingest,
     'chat': asthralios.chat.start_chat,
-    'agent': agentic.start_agent,
+    'agent': asthralios.chat.start_agent,
+    'sentinel': asthralios.sentinel.check_code_quality,
 }
 
 def getOptions() -> dict:
@@ -28,10 +34,13 @@ def getOptions() -> dict:
     recognized argument is presented.
     '''
     options = argparse.ArgumentParser(description="Asthralios - Markizano's Assistant")
-    options.add_argument("--language", type=str, default="en", help="Language of the video")
+    options.add_argument("--language", type=str, default="en", help="Language to send to the model.")
     options.add_argument("--log-level", metavar='log_level', type=str, default="INFO",
                         help="Verbosity of the logger", choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'])
     options.add_argument('--model', type=str, default="gpt-oss:20b", help="Model to use for the chat")
+    options.add_argument('--model-provider', type=str, default="ollama", help="Model provider to use for the chat")
+    options.add_argument('--path', type=str, default=".", help="Path to the codebase to check")
+    options.add_argument('--output', '-o', type=str, default='-', help="If there's output, where to write.")
 
     opts, other = options.parse_known_args()
     if not 'LOG_LEVEL' in os.environ:
@@ -54,17 +63,18 @@ def getOptions() -> dict:
         opts.action = action
     else:
         log.error('No action specified!')
+        log.error(f'Available actions: {list(ACTIONS.keys())}')
         options.print_help()
-        return opts.__dict__
+        raise SystemExit(8)
     return opts.__dict__
 
 def interrupt(signal, frame):
     log.error('Caught ^C interrupt, exiting...')
-    sys.exit(8)
+    sys.exit(signal)
 
 def main():
     '''
-    entrypoint.
+    Entrypoint: start here.
     '''
     log.info('Good morning.')
     cfg = asthralios.config.getInstance()
@@ -72,7 +82,6 @@ def main():
     # Command line takes precedence over config.
     for name, value in opts.items():
         cfg.config[name] = value
-    log.debug(cfg)
     log.info("Asthralios is waking up...")
     signal(SIGINT, interrupt)
     action = cfg.config.get('action', 'converse')

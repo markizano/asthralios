@@ -1,3 +1,8 @@
+'''
+Experiment class to better understand LangGraph.
+Sample use case: Support agent, informational search agent, action MCP agent.
+'''
+
 from kizano import getLogger
 from typing import Annotated, Literal
 from langgraph.graph import StateGraph, START, END

@@ -3,4 +3,4 @@
 # mostly used for testing.
 export PYTHONPATH=lib
 PYTHONEXE=`test -x .venv/bin/python3 && echo .venv/bin/python3 || echo python3`
-$PYTHONEXE -m asthralios.cli $@
+$PYTHONEXE -m asthralios $@

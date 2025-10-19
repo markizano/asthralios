@@ -56,7 +56,7 @@ class PulseClient(object):
             max_speech_duration_s=float("inf"),
             min_silence_duration_ms=200,
             window_size_samples=1024,
-            speech_pad_ms=250,
+            speech_pad_ms=350,
         )
         iq = mp.Queue()
         oq = mp.Queue()

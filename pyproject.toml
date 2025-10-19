@@ -57,4 +57,4 @@ homepage = "https://markizano.net/"
 repository = "https://github.com/markizano/asthralios"
 
 [project.scripts]
-asthralios = "asthralios.cli:main"
+asthralios = "asthralios:main"

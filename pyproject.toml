@@ -35,7 +35,7 @@ dependencies = [
     "langchain[ollama]>=0.3.27",
     "langgraph>=0.6.8",
     "numba==0.60.0",
-    "openai==1.99.9",
+    "openai>=1.99.9",
     "openai-whisper==20250625",
     "openwebui-client==0.3.2",
     "pasimple==0.0.3",

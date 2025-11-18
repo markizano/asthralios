@@ -4,63 +4,28 @@ log = getLogger(__name__)
 log.info('hi!')
 
 import torch
+import evaluate
 from datasets import load_dataset, concatenate_datasets, Audio, Value, Features
 from transformers import (
     WhisperForConditionalGeneration,
     WhisperProcessor,
     Seq2SeqTrainingArguments,
-    Seq2SeqTrainer
+    Seq2SeqTrainer,
+    WhisperTokenizer,
 )
 from peft import LoraConfig, get_peft_model
 from torch.nn.utils.rnn import pad_sequence
 
-
+### CONSTANTS ####
 WHISPER_MODEL = 'openai/whisper-medium'  # or large-v2 if you have VRAM
+DATA_DIR_WORDS = "data/samples/words"
+DATA_DIR_PHRASES = "data/samples/phrases"
+OUTPUT_DIR = "data/kizano-lora"
 
-log.info('Loading data set ...')
-features = Features({
-    'audio': Audio(
-        sampling_rate=16000,
-        decode=True,
-        num_channels=2,
-    ),
-    'text': Value('string')
-})
-
-twords = load_dataset('text', data_files='data/samples/words/*.txt', encoding='utf-8')
-tphrases = load_dataset('text', data_files='data/samples/phrases/*.txt', encoding='utf-8')
-
-def map_words(e, idx):
-    e['text'] = twords['train'][idx]['text']
+### FUNCTIONS ###
+def map_text(e, idx, text_ds):
+    e["text"] = text_ds[idx]["text"]
     return e
-
-def map_phrases(e, idx):
-    e['text'] = tphrases['train'][idx]['text']
-    return e
-
-words = load_dataset('audiofolder', data_dir='data/samples/words', features=features).map(map_words, with_indices=True)
-phrases = load_dataset('audiofolder', data_dir='data/samples/phrases', features=features).map(map_phrases, with_indices=True)
-
-dataset = concatenate_datasets([ words['train'], phrases['train'] ])
-log.info('Dataset ready!')
-
-log.info('Loading model and processor...')
-processor = WhisperProcessor.from_pretrained(WHISPER_MODEL)
-model = WhisperForConditionalGeneration.from_pretrained(WHISPER_MODEL)
-log.info('Model & processor ready!')
-
-log.info('Setting up LORA Config...')
-lora_cfg = LoraConfig(
-    r=16,
-    lora_alpha=32,
-    lora_dropout=0.1,
-    target_modules=['q_proj', 'v_proj'],
-    task_type='SEQ_2_SEQ_LM'
-)
-log.info('LORA ready!')
-
-eft_model = get_peft_model(model, lora_cfg)
-log.info('PEFT model ready!')
 
 def prepare(batch):
     # batch['audio'] is a dict: {'array': np.array, 'sampling_rate': int}
@@ -81,8 +46,8 @@ def prepare(batch):
     ).input_ids
 
     return {
-        "input_features": input_features.squeeze(0),
-        "labels": labels.squeeze(0),
+        "input_features": input_features,
+        "labels": labels,
     }
 
 def data_collator(batch):
@@ -93,6 +58,9 @@ def data_collator(batch):
     input_features_padded = pad_sequence(input_features, batch_first=True, padding_value=0.0)
 
     # Pad labels to same length
+    log.debug(labels)
+    import code
+    code.interact(local=locals())
     labels_padded = pad_sequence(labels, batch_first=True, padding_value=-100)  # -100 is ignore_index for CrossEntropy
 
     return {
@@ -100,17 +68,69 @@ def data_collator(batch):
         "labels": labels_padded
     }
 
+def compute_metrics(pred):
+    pred_ids = pred.predictions
+    label_ids = pred.label_ids
+
+    # replace -100 with the pad_token_id
+    label_ids[label_ids == -100] = tokenizer.pad_token_id
+
+    # we do not want to group tokens when computing the metrics
+    pred_str = tokenizer.batch_decode(pred_ids, skip_special_tokens=True)
+    label_str = tokenizer.batch_decode(label_ids, skip_special_tokens=True)
+    wer = 100 * metric.compute(predictions=pred_str, references=label_str)
+
+    return { "wer": wer }
+
+
+### INIT VARIABLES | LOADING... ###
+log.info('Loading features & data set ...')
+metric = evaluate.load("wer")
+features = Features({
+    'audio': Audio(
+        sampling_rate=16000,
+        decode=True,
+        num_channels=2,
+    ),
+    'text': Value('string')
+})
+
+twords = load_dataset('text', data_files='data/samples/words/*.txt', encoding='utf-8')['train']
+tphrases = load_dataset('text', data_files='data/samples/phrases/*.txt', encoding='utf-8')['train']
+
+words = load_dataset('audiofolder', data_dir=DATA_DIR_WORDS, features=features).map(lambda x, idx: map_text(x, idx, twords), with_indices=True)
+phrases = load_dataset('audiofolder', data_dir=DATA_DIR_PHRASES, features=features).map(lambda x, idx: map_text(x, idx, tphrases), with_indices=True)
+
+dataset = concatenate_datasets([ words['train'], phrases['train'] ])
+log.info('Dataset ready!')
+
+tokenizer = WhisperTokenizer.from_pretrained(WHISPER_MODEL)
+processor = WhisperProcessor.from_pretrained(WHISPER_MODEL, language='en')
+model = WhisperForConditionalGeneration.from_pretrained(WHISPER_MODEL).to('cuda')
+log.info('Model & processor ready!')
+
+lora_cfg = LoraConfig(
+    r=16,
+    lora_alpha=32,
+    lora_dropout=0.1,
+    target_modules=['q_proj', 'v_proj'],
+    task_type='SEQ_2_SEQ_LM'
+)
+log.info('LORA ready!')
+
+peft_model = get_peft_model(model, lora_cfg)
+log.info('Parameter-Efficient Fine-Tuning model ready!')
+
 log.info('Processing samples...')
 processed = dataset.map(prepare)
 log.info('Samples iteratively processed!')
 
-log.info('Training the model...')
 training_args = Seq2SeqTrainingArguments(
     output_dir='data/kizano-lora',
-    per_device_train_batch_size=4,
+    per_device_train_batch_size=6,
     gradient_accumulation_steps=4,
     fp16=True,
-    learning_rate=1e-4,
+    learning_rate=1e-3,
     warmup_steps=50,
     max_steps=1400,       # enough for a small dataset
     save_steps=200,
@@ -120,16 +140,17 @@ training_args = Seq2SeqTrainingArguments(
 )
 
 trainer = Seq2SeqTrainer(
-    model=eft_model,
-    data_collator=data_collator,
-    train_dataset=processed,
+    model=peft_model,
     args=training_args,
+    data_collator=data_collator,
+    compute_metrics=compute_metrics,
+    train_dataset=processed,
 )
 
 trainer.train()
 log.info('Model trained!')
 
 log.info('Saving results to checkpoint...')
-merged = model.merge_and_unload()
+merged = processor.merge_and_unload()
 merged.save_pretrained('data/kizano-med')
 log.info('Complete!')

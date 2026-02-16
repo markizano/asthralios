@@ -84,10 +84,11 @@ class ChatAgent:
     def __init__(self, config: dict):
         self.config = config
         model = self.config['model']
-        log.info(f'Using model: {model}')
+        model_provider = self.config.get('model_provider', 'ollama')
+        log.info(f'Using model: {model} from provider: {model_provider}')
         self.llm = init_chat_model(
             model=model,
-            model_provider='ollama'
+            model_provider=model_provider,
         )
         self.graph = self.getGraph()
 

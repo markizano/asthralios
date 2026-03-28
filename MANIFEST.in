@@ -1,4 +1,0 @@
-include requirements.txt
-include README.md
-recursive-include lib/asthralios *.py
-recursive-include bin *

@@ -10,7 +10,7 @@ import traceback as tb
 from typing import Generator, NamedTuple
 
 import torch
-from TTS.api import TTS
+#from TTS.api import TTS
 
 from faster_whisper import WhisperModel
 from faster_whisper.vad import VadOptions, get_vad_model
@@ -269,13 +269,13 @@ class Conversation(object):
         '''
         Directly load the TTSv2 model.
         '''
-        from TTS.tts.configs.xtts_config import XttsConfig
-        from TTS.tts.models.xtts import Xtts
-        self.xtts_config = XttsConfig()
-        home = os.environ.get('HOME', '/home/stable-diffusion')
-        self.xtts_config.load_json(f"{home}/.local/share/tts/tts_models--multilingual--multi-dataset--xtts_v2/config.json")
-        self.tts = Xtts.init_from_config(self.xtts_config)
-        self.tts.load_checkpoint(self.xtts_config, checkpoint_dir=f"{home}/.local/share/tts/tts_models--multilingual--multi-dataset--xtts_v2/", eval=True)
+        # from TTS.tts.configs.xtts_config import XttsConfig
+        # from TTS.tts.models.xtts import Xtts
+        # self.xtts_config = XttsConfig()
+        # home = os.environ.get('HOME', '/home/stable-diffusion')
+        # self.xtts_config.load_json(f"{home}/.local/share/tts/tts_models--multilingual--multi-dataset--xtts_v2/config.json")
+        # self.tts = Xtts.init_from_config(self.xtts_config)
+        # self.tts.load_checkpoint(self.xtts_config, checkpoint_dir=f"{home}/.local/share/tts/tts_models--multilingual--multi-dataset--xtts_v2/", eval=True)
         # if torch.cuda.is_available():
         #     self.tts.cuda()
 
@@ -312,12 +312,14 @@ class Conversation(object):
         log.info(f'Text to voice: {text}')
         if self.isTTSLocal():
             if TTS_ADAPTER == 'api':
-                wav = self.tts.tts(text, speed=1.0, split_sentences=True)
+                pass
+                # wav = self.tts.tts(text, speed=1.0, split_sentences=True)
             elif TTS_ADAPTER == 'model':
                 home = os.environ.get('HOME', '/home/stable-diffusion')
                 speaker_wav = f'{home}/.local/share/tts/tts_models--multilingual--multi-dataset--xtts_v2/speaker.wav'
-                wav = self.tts.synthesize(text, config=self.xtts_config, speaker_wav=speaker_wav, language=LANGUAGE)
-            npwav = np.array(wav, dtype=np.float32)
+                # wav = self.tts.synthesize(text, config=self.xtts_config, speaker_wav=speaker_wav, language=LANGUAGE)
+            # npwav = np.array(wav, dtype=np.float32)
+            npwav = np.array([0], dtype=np.float32)
             audio = np.array(npwav * (32768 / max(0.01, np.max(np.abs(npwav)))), dtype=np.int16)
             q.put(audio)
         else:

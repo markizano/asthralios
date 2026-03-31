@@ -6,13 +6,14 @@ This is the main entrypoint for the application.
 from dotenv import load_dotenv
 load_dotenv()
 
+import kizano
 import asthralios
 
 import os, sys
 import argparse
 from signal import signal, SIGINT
 
-class CliEntrypoint:
+class Cli:
 
     ACTIONS = {
         'converse': asthralios.senses.conversate,
@@ -34,14 +35,14 @@ class CliEntrypoint:
     def getCmd(self):
         '''
         '''
-        cfg = asthralios.config.getInstance()
+        cfg = kizano.getConfig()
         opts = self.getOptions()
         # Command line takes precedence over config.
         for name, value in opts.items():
             cfg.config[name] = value
         self.log.info("Asthralios is waking up...")
         action = cfg.config.get('action', 'converse')
-        cmd = CliEntrypoint.ACTIONS[action]
+        cmd = Cli.ACTIONS[action]
         return (cmd, cfg.config)
 
     def getOptions(self) -> dict:
@@ -68,7 +69,7 @@ class CliEntrypoint:
         # If there is a subsequent resource after the action, assign the resource to the options.
         while other:
             arg = other.pop(0)
-            if arg in list(CliEntrypoint.ACTIONS.keys()):
+            if arg in list(Cli.ACTIONS.keys()):
                 action = arg
             else:
                 if hasattr(opts, 'resources'):
@@ -79,7 +80,7 @@ class CliEntrypoint:
             opts.action = action
         else:
             self.log.error('No action specified!')
-            self.log.error(f'Available actions: {list(CliEntrypoint.ACTIONS.keys())}')
+            self.log.error(f'Available actions: {list(Cli.ACTIONS.keys())}')
             options.print_help()
             raise SystemExit(8)
         return opts.__dict__

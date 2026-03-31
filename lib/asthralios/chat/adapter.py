@@ -8,6 +8,7 @@ themselves into this class instance.
 
 from typing import Awaitable, Iterable
 
+from easydict import EasyDict
 from openai.types.chat import ChatCompletionMessageParam
 import openwebui_client.client as oui
 
@@ -20,7 +21,10 @@ def debug_event(event_name: str, **kwargs) -> None:
         log.debug(f"  - {key}: {value}")
 
 class ChatAdapter(object):
-    def __init__(self, config: asthralios.config.Configuration):
+    '''
+    Base class that represents a chat adapter. Could be used for any chat interface.
+    '''
+    def __init__(self, config: EasyDict):
         self.config = config
         self.llm = oui.OpenWebUIClient(
             base_url=self.config.oui.base_url,

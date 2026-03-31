@@ -26,7 +26,7 @@ dependencies = [
     "discord-py==2.7.1",
     "easydict>=1.13",
     "faster-whisper>=1.2.1",
-    "kizano==1.0.6",
+    "kizano==1.0.7",
     "langchain-community>=0.4.1",
     "langchain-core>=1.2.13",
     "langchain-ollama>=1.0.1",

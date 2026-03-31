@@ -1,6 +1,5 @@
 import asthralios.logger as logger
 getLogger = logger.getLogger
-import asthralios.config as config
 import asthralios.senses as senses
 import asthralios.chat as chat
 import asthralios.sentinel as sentinel
@@ -12,8 +11,8 @@ def main():
     '''
     log = logger.getLogger(__name__)
     log.info('Good morning.')
-    entrypoint = cli.CliEntrypoint()
+    entrypoint = cli.Cli()
     cmd, cfg = entrypoint.getCmd()
     return cmd(cfg)
 
-__all__ = ['main', 'logger', 'getLogger', 'config', 'cli', 'senses', 'chat', 'sentinel']
+__all__ = ['main', 'getLogger', 'logger', 'getLogger', 'cli', 'senses', 'chat', 'sentinel']

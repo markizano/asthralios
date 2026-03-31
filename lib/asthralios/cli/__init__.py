@@ -17,12 +17,29 @@ from signal import signal, SIGINT
 def digest_action(config):
     """Run daily or weekly digest and optionally deliver to Slack/Discord."""
     from asthralios.brain.digest import run_digest
-    from asthralios.chat.my_slack import send_slack_message
+    from asthralios.brain import BrainDB
+    from asthralios.brain.rbac import RBACManager
 
     digest_type = 'daily' if config.get('daily') else 'weekly'
     text = run_digest(config, digest_type)
     print(text)
+
+    # Log CLI digest action to access_log for audit trail
+    db = BrainDB(config.brain.db_path)
+    db.log_access(
+        platform='system',
+        platform_user_id='cli',
+        display_name='cli',
+        role_at_time='admin',
+        channel='cli',
+        message_preview=f'{digest_type} digest',
+        action='digest',
+        outcome='ok',
+        detail=f'type={digest_type}',
+    )
+
     if config.get('deliver_slack'):
+        from asthralios.chat.my_slack import send_slack_message
         send_slack_message(config, config['deliver_slack'], text)
     if config.get('deliver_discord'):
         import asyncio
@@ -33,6 +50,22 @@ def digest_action(config):
 
 def notify_action(config):
     """Send an arbitrary message to Slack or Discord."""
+    from asthralios.brain import BrainDB
+
+    target_channel = config.get('slack') or config.get('discord') or ''
+    db = BrainDB(config.brain.db_path)
+    db.log_access(
+        platform='system',
+        platform_user_id='cli',
+        display_name='cli',
+        role_at_time='admin',
+        channel=target_channel,
+        message_preview=(config.get('message') or '')[:200],
+        action='notify',
+        outcome='ok',
+        detail=f'target={target_channel}',
+    )
+
     if config.get('slack'):
         from asthralios.chat.my_slack import send_slack_message
         send_slack_message(config, config['slack'], config.get('message', ''))
@@ -40,6 +73,45 @@ def notify_action(config):
         import asyncio
         from asthralios.chat.my_discord import send_discord_message
         asyncio.run(send_discord_message(config, config['discord'], config.get('message', '')))
+    return 0
+
+
+def users_action(config):
+    """Manage RBAC users."""
+    from asthralios.brain import BrainDB
+    from asthralios.brain.rbac import RBACManager
+
+    db   = BrainDB(config.brain.db_path)
+    rbac = RBACManager(db, config)
+
+    users_action_name = config.get('users_action')
+
+    if users_action_name == 'list':
+        rows = rbac.list_users()
+        if not rows:
+            print('No users recorded yet.')
+        for r in rows:
+            print(
+                f"[{r['role']:8s}] {r['platform']:8s} {r['platform_user_id']:20s}  "
+                f"{r['display_name'] or '(no name)':30s}  last: {r['last_seen'][:10]}"
+            )
+
+    elif users_action_name == 'set-role':
+        rbac.set_role(config['platform'], config['user_id'], config['role'])
+        print(f"Set {config['platform']}/{config['user_id']} \u2192 {config['role']}")
+
+    elif users_action_name == 'log':
+        rows = db.get_access_log(
+            limit=config.get('limit') or 50,
+            platform_user_id=config.get('user_id') or None,
+        )
+        for r in rows:
+            print(
+                f"{r['logged_at'][:19]}  [{r['role_at_time']:8s}]  "
+                f"{r['platform']:8s}  {r['platform_user_id']:20s}  "
+                f"{r['action']:15s}  {r['outcome']:20s}  "
+                f"{(r['detail'] or '')[:40]}"
+            )
     return 0
 
 
@@ -53,6 +125,7 @@ class Cli:
         'sentinel': asthralios.sentinel.check_code_quality,
         'digest': digest_action,
         'notify': notify_action,
+        'users': users_action,
     }
 
     def __init__(self):
@@ -135,6 +208,25 @@ class Cli:
         notify_parser.add_argument('--discord', metavar='CHANNEL_ID', type=str, default=None,
                                    help='Send message to Discord channel ID.')
         notify_parser.add_argument('message', nargs='?', default=None, help='Message text.')
+
+        # users
+        users_parser = subparsers.add_parser('users', help='Manage RBAC users and access log.')
+        users_sub = users_parser.add_subparsers(dest='users_action', metavar='subcommand')
+
+        users_sub.add_parser('list', help='List all known users and their roles.')
+
+        set_role_parser = users_sub.add_parser('set-role', help='Change a user\'s role.')
+        set_role_parser.add_argument('--platform', required=True, choices=['slack', 'discord'],
+                                     help='Platform (slack or discord).')
+        set_role_parser.add_argument('--user-id', dest='user_id', required=True,
+                                     help='Raw platform user ID (e.g. U01234ABC for Slack).')
+        set_role_parser.add_argument('--role', required=True, choices=['admin', 'user', 'blocked'],
+                                     help='Role to assign.')
+
+        log_parser = users_sub.add_parser('log', help='Show access log entries.')
+        log_parser.add_argument('--user-id', dest='user_id', type=str, default=None,
+                                help='Filter by platform user ID.')
+        log_parser.add_argument('--limit', type=int, default=50, help='Max entries to show.')
 
         opts = options.parse_args()
 

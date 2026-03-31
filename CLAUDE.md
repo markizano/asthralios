@@ -29,7 +29,7 @@ uv run pytest tests/asthraliosunit/adapters/test_hatchet.py::TestHatchet::test_i
 
 ### Entry Points
 - `lib/asthralios/__init__.py` — `main()` function; initializes config, logger, CLI, and dispatches to subcommands
-- `lib/asthralios/cli/` — Argument parsing; actions: `converse`, `ingest`, `chat`, `agent`, `sentinel`
+- `lib/asthralios/cli/` — Argument parsing; actions: `converse`, `ingest`, `chat`, `agent`, `sentinel`, `digest`, `notify`
 
 ### Core Modules
 
@@ -61,6 +61,15 @@ uv run pytest tests/asthraliosunit/adapters/test_hatchet.py::TestHatchet::test_i
 - `atwiki.py` — Atlassian Confluence (`AtlassianWiki` class, pagination via generators)
 - `hatchet.py` — GitHub (`Hatchet` class, org-based access, workflow/log management)
 
+**`lib/asthralios/brain/`** — 2nd Brain feature: captures messages from a designated inbox channel, classifies them with an LLM, files them as Obsidian-compatible Markdown, and maintains a SQLite audit log.
+- `schema.py` — Pydantic v2 models: `ClassificationResult`, `InboxLogRecord`, per-category entries (`PersonEntry`, `ProjectEntry`, `IdeaEntry`, `AdminEntry`, `MusingEntry`, `EventEntry`)
+- `prompts.py` — All LLM prompts: classifier, daily digest, weekly digest
+- `classifier.py` — `BrainClassifier` uses LangChain `init_chat_model`; returns `ClassificationResult`; handles low-confidence with clarification requests; strips markdown fences from LLM output
+- `writer.py` — `BrainWriter` writes `{vault}/{category}/{YYYY-MM-DD}-{slug}.md` with YAML frontmatter
+- `db.py` — `BrainDB` SQLite audit log; tables: `inbox_log`, `digest_log`; query helpers for digest generation
+- `digest.py` — `run_digest(config, 'daily'|'weekly')` builds context from DB, calls LLM, returns text
+- `rbac.py` — `RBACManager`, `UserIdentity`, `AccessContext`; resolves platform user → role; logs every interaction to `access_log`; enforces access before any LLM call; roles: `blocked < user < admin`
+
 **`lib/asthralios/voice/`** — Whisper fine-tuning:
 - `trainer.py` — LoRA-based fine-tuning for custom vocabulary (kizano dict)
 - `modern_trainer.py` — ATCO2 ATC dataset trainer using Whisper-small
@@ -72,6 +81,50 @@ uv run pytest tests/asthraliosunit/adapters/test_hatchet.py::TestHatchet::test_i
 - **Multiprocessing:** `ChatManager` spawns each chat adapter in its own process
 - **LangGraph:** Agentic workflows in `chat/agentic.py`
 - **Barrel imports:** `senses/`, `sentinel/`, `chat/` expose selected symbols via `__init__.py`
+
+### Chat Adapter Changes (v0.2)
+- `adapter.py` — `get_message_history()` replaced by `get_thread_history(thread_id)` (thread-only context, capped at `config.oui.thread_context_limit`). Added `on_brain_message()` and `is_brain_channel()` for brain routing.
+- `my_slack.py` — Implements `get_thread_history()` via `conversations_replies`; routes brain channels to `on_brain_message()`; handles `fix: <category>` commands; exposes `send_slack_message(config, channel, message)` for proactive sends.
+- `my_discord.py` — Same brain routing and fix handling; exposes `send_discord_message(config, channel_id, message)` as a standalone async function.
+
+### CLI Subcommands (v0.2)
+- `digest --daily|--weekly [--deliver-slack CHANNEL] [--deliver-discord CHANNEL_ID]` — Generate and optionally deliver a digest
+- `notify --slack CHANNEL MESSAGE | --discord CHANNEL_ID MESSAGE` — Proactive send without an incoming event
+- `users list` — Print all known users and their roles
+- `users set-role --platform slack|discord --user-id ID --role admin|user|blocked` — Change a user's role
+- `users log [--user-id ID] [--limit N]` — Print access log
+
+### RBAC Design Invariants
+- Identity is resolved once at the platform boundary; all downstream code receives `AccessContext`
+- Every interaction is logged to `access_log` regardless of outcome (append-only)
+- Roles live in SQLite; config seeds admins (config always wins via `force_role=True`)
+- The LLM never sees role data — enforcement is code, not prompts
+- Blocked users get one polite reply on first contact, then silence (still logged)
+- `notify` and `digest --deliver-*` are implicitly admin-only (require server shell access); logged with `platform='system'`, `platform_user_id='cli'`
+
+### Config Keys (brain module)
+```yaml
+brain:
+  inbox_channel: "sb-inbox"       # Slack channel name or Discord name/ID; list for multiple
+  vault_path: "/home/user/brain"  # Obsidian vault root
+  db_path: "/home/user/brain/.brain.db"  # SQLite audit log (NOT inside vault)
+  model: "llama3.2:3b"            # LLM for classification
+  provider: "ollama"
+  confidence_threshold: 0.60      # Below this → ask for clarification
+
+oui:
+  thread_context_limit: 10        # Max thread messages sent to LLM context
+
+rbac:
+  admins:
+    slack: "U01234ABC"            # Raw Slack user ID (profile → three-dot → Copy member ID)
+    discord: "123456789012"       # Discord snowflake (Settings → Advanced → Developer Mode → right-click self → Copy User ID)
+    # Both accept lists: slack: ["U01234ABC", "U09876ZYX"]
+  default_role: "user"            # Role for new users on first contact; set "blocked" for fully private bot
+  blocked_message: >
+    This assistant is a private tool. If you think this is an error,
+    reach out to the owner directly.
+```
 
 ### LLM Backends
 - **Ollama** (local, default `127.0.0.1:11434`) — used in `gpt.py` and for embeddings

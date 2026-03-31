@@ -1,3 +1,5 @@
 # Adapters test package initialization
-from .test_hatchet import *
-from .test_atwiki import *
+import asthraliosunit.adapters.test_atwiki as test_atwiki
+import asthraliosunit.adapters.test_hatchet as test_hatchet
+
+__all__ = ['test_atwiki', 'test_hatchet']

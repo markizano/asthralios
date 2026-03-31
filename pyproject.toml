@@ -26,7 +26,7 @@ dependencies = [
     "discord-py==2.7.1",
     "easydict>=1.13",
     "faster-whisper>=1.2.1",
-    "kizano==1.0.7",
+    "kizano==1.0.8",
     "langchain>=1.2.13",
     "langchain-core>=1.2.23",
     "langchain-community>=0.4.1",
@@ -43,8 +43,19 @@ dependencies = [
     "requests>=2.32.5",
     "slack-bolt==1.27.0",
     "slack-sdk==3.41.0",
+    "torch>=2.11.0",
 ]
 keywords = [ "ai", "artificial intelligence", "agentic", "langchain" ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:'audioop' is deprecated and slated for removal in Python 3.13:DeprecationWarning",
+]
 
 [project.urls]
 homepage = "https://markizano.net/"

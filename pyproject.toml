@@ -13,7 +13,7 @@ name = "asthralios"
 dynamic = ["version"]
 description = "Markizano's Assistant"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11, <=3.13"
 license = "GPL-3.0-or-later"
 authors = [
     { name = "Markizano Draconus", email = "python@markizano.net" },
@@ -27,11 +27,12 @@ dependencies = [
     "easydict>=1.13",
     "faster-whisper>=1.2.1",
     "kizano==1.0.7",
+    "langchain>=1.2.13",
+    "langchain-core>=1.2.23",
     "langchain-community>=0.4.1",
-    "langchain-core>=1.2.13",
     "langchain-ollama>=1.0.1",
-    "langchain-postgres>=0.0.16",
-    "langchain-text-splitters>=1.1.0",
+    "langchain-postgres>=0.0.17",
+    "langchain-text-splitters>=0.3.1",
     "langgraph>=1.0.8",
     "openai>=2.21.0",
     "openwebui-client==0.3.2",
@@ -42,7 +43,6 @@ dependencies = [
     "requests>=2.32.5",
     "slack-bolt==1.27.0",
     "slack-sdk==3.41.0",
-    "tts>=0.22.0",
 ]
 keywords = [ "ai", "artificial intelligence", "agentic", "langchain" ]
 

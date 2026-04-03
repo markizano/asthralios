@@ -5,6 +5,7 @@ to the Discord API's.
 Register the functions needed in order to send and receive messages and DM's from Discord.
 '''
 
+import asyncio
 import re
 from pathlib import Path
 from typing import Optional
@@ -12,30 +13,36 @@ from typing import Optional
 import discord
 from discord.ext import commands
 
+from asthralios.brain import BrainDB
 from asthralios.brain.rbac import UserIdentity
 from asthralios.chat.adapter import ChatAdapter, debug_event
 
 import asthralios
 log = asthralios.getLogger(__name__)
 
+NOTE_CATEGORIES = {'people', 'projects', 'ideas', 'admin', 'musings'}
 
-async def send_discord_message(config, channel_id: str, message: str) -> None:
+
+def send_discord_message(config, channel_id: str, message: str) -> None:
     """
     Proactively send a message to a Discord channel without needing a prior event.
-    Usable from CLI or cron jobs. Handles the async event loop correctly.
+    Usable from CLI or cron jobs.
     """
-    intents = discord.Intents.default()
-    client = discord.Client(intents=intents)
+    async def _send():
+        intents = discord.Intents.default()
+        client = discord.Client(intents=intents)
 
-    @client.event
-    async def on_ready():
-        channel = client.get_channel(int(channel_id))
-        if channel is None:
-            channel = await client.fetch_channel(int(channel_id))
-        await channel.send(message)
-        await client.close()
+        @client.event
+        async def on_ready():
+            channel = client.get_channel(int(channel_id))
+            if channel is None:
+                channel = await client.fetch_channel(int(channel_id))
+            await channel.send(message)
+            await client.close()
 
-    await client.start(config.discord.bot_token)
+        await client.start(config.discord.bot_token)
+
+    asyncio.run(_send())
 
 
 class ChatAdapterDiscord(ChatAdapter):
@@ -52,6 +59,7 @@ class ChatAdapterDiscord(ChatAdapter):
         intents.dm_messages = True
         intents.messages = True
         self.bot = commands.Bot(command_prefix="!", intents=intents)
+        self._pending_thread_history: list[dict] = []
         self.register()
 
     def start(self):
@@ -72,6 +80,13 @@ class ChatAdapterDiscord(ChatAdapter):
         _, content = self.format_message(message)
         return content
 
+    def get_thread_history(self, thread_id: str) -> list[dict]:
+        """
+        Return the thread history collected eagerly by on_message before sync dispatch.
+        The async collection happens in on_message; this method just returns the result.
+        """
+        return self._pending_thread_history
+
     def register(self):
         '''
         Register the decorator function events so the bot gets connected to the server.
@@ -82,6 +97,7 @@ class ChatAdapterDiscord(ChatAdapter):
 
         @self.bot.event
         async def on_ready():
+            # discord.py requires async here — tree.sync() is a coroutine.
             try:
                 synced = await self.bot.tree.sync()
                 debug_event(
@@ -95,6 +111,7 @@ class ChatAdapterDiscord(ChatAdapter):
 
         @self.bot.event
         async def on_message(message: discord.Message):
+            # discord.py requires async here — channel.send() and process_commands() are coroutines.
             debug_event(
                 "on_message",
                 id=message.id,
@@ -123,12 +140,32 @@ class ChatAdapterDiscord(ChatAdapter):
 
             text = (message.content or "").strip()
 
-            # Determine thread_id for history
+            # Determine thread_id
             thread_id: Optional[str] = None
             if isinstance(message.channel, discord.Thread):
                 thread_id = str(message.channel.id)
 
-            # Handle fix: commands (admin-only)
+            # Eagerly collect thread history here while we are in the async context.
+            # This allows all downstream sync code to call get_thread_history() without
+            # needing to be async themselves.
+            limit = getattr(self.config.oui, 'thread_context_limit', 10)
+            self._pending_thread_history = []
+            try:
+                source = message.channel if isinstance(message.channel, discord.Thread) else None
+                if source:
+                    async for msg in source.history(limit=limit, oldest_first=True):
+                        role = 'assistant' if (msg.author.bot or msg.author.id == self.bot.user.id) else 'user'
+                        if msg.content:
+                            self._pending_thread_history.append({'role': role, 'content': msg.content})
+                else:
+                    async for msg in message.channel.history(limit=limit, before=message, oldest_first=True):
+                        role = 'assistant' if (msg.author.bot or msg.author.id == self.bot.user.id) else 'user'
+                        if msg.content:
+                            self._pending_thread_history.append({'role': role, 'content': msg.content})
+            except Exception as exc:
+                log.error(f'thread history collection failed: {exc}')
+
+            # Handle fix: commands (admin-only) — sync business logic, async send
             if re.match(r'^fix\s*:', text, re.IGNORECASE):
                 identity = self.extract_identity(message)
                 channel_str = self._get_channel(message)
@@ -137,56 +174,45 @@ class ChatAdapterDiscord(ChatAdapter):
                     self.get_rbac().log_access(ctx, 'fix', 'denied', detail='non-admin fix attempt')
                     await message.channel.send("Only the admin can use the fix command.")
                 else:
-                    await self._handle_fix_command(text, message.channel.send, identity.platform_user_id)
+                    reply = self._handle_fix_command(text, identity.platform_user_id)
                     self.get_rbac().log_access(ctx, 'fix', 'ok', detail=f'command: {text[:80]}')
+                    await message.channel.send(reply)
                 await self.bot.process_commands(message)
                 return
 
-            # Store for get_thread_history fallback
-            self.current_message = message
+            # Sync business logic: RBAC + LLM/brain routing
+            reply = self.on_message_received(message, thread_id=thread_id)
 
-            # Delegate all other messages through RBAC gate in base class
-            reply = await self.on_message_received(message, message.channel.send, thread_id=thread_id)
+            # Async send (discord.py requires await for channel.send)
             if reply:
-                await self.do_message_send(message.channel.send, reply)
+                limit = self.mesgLimit()
+                for i in range(0, len(reply), limit):
+                    await message.channel.send(reply[i:i+limit])
 
             await self.bot.process_commands(message)
 
-    async def _handle_fix_command(
-        self,
-        text: str,
-        say,
-        source_user: str,
-    ) -> None:
+    def _handle_fix_command(self, text: str, source_user: str) -> str:
         """
         Parse 'fix: <category> [#entry_id]', move the file, update DB.
+        Returns the reply string.
         """
-        from asthralios.brain import BrainDB
-
         match = re.match(r'^fix\s*:\s*(\w+)(?:\s+#(\d+))?', text, re.IGNORECASE)
         if not match:
-            await say("Couldn't parse fix command. Format: `fix: <category>` or `fix: <category> #<entry_id>`")
-            return
+            return "Couldn't parse fix command. Format: `fix: <category>` or `fix: <category> #<entry_id>`"
 
         new_category = match.group(1).lower()
         entry_id = int(match.group(2)) if match.group(2) else None
 
-        valid_categories = {'people', 'projects', 'ideas', 'admin', 'musings'}
-        if new_category not in valid_categories:
-            await say(f"Unknown category `{new_category}`. Valid: {', '.join(sorted(valid_categories))}")
-            return
+        if new_category not in NOTE_CATEGORIES:
+            return f"Unknown category `{new_category}`. Valid: {', '.join(sorted(NOTE_CATEGORIES))}"
 
         brain_cfg = self.config.brain
         db = BrainDB(brain_cfg.db_path)
 
-        if entry_id:
-            row = db.get_entry(entry_id)
-        else:
-            row = db.get_latest_for_user(source_user, ['filed', 'needs_review'])
+        row = db.get_entry(entry_id) if entry_id else db.get_latest_for_user(source_user, ['filed', 'needs_review'])
 
         if not row:
-            await say("No matching entry found to fix.")
-            return
+            return "No matching entry found to fix."
 
         original_category = row['category']
         old_path = row['filed_path']
@@ -196,10 +222,10 @@ class ChatAdapterDiscord(ChatAdapter):
             Path(old_path).rename(new_path)
             db.update_filed_path(row['id'], str(new_path))
             db.update_status(row['id'], 'fix_applied', fix_original_cat=original_category)
-            await say(f"Fixed: moved entry #{row['id']} from `{original_category}` to `{new_category}`.")
+            return f"Fixed: moved entry #{row['id']} from `{original_category}` to `{new_category}`."
         else:
             db.update_status(row['id'], 'fix_applied', fix_original_cat=original_category)
-            await say(f"Fixed category for entry #{row['id']} to `{new_category}` (no file to move).")
+            return f"Fixed category for entry #{row['id']} to `{new_category}` (no file to move)."
 
     def format_message(self, m: discord.Message) -> tuple[str, str]:
         '''
@@ -224,25 +250,3 @@ class ChatAdapterDiscord(ChatAdapter):
                 content_parts.append(f"[embeds: {embeds_desc}]")
         content = " \n".join(content_parts) or "[no text]"
         return role, content
-
-    async def get_thread_history(self, thread_id: str) -> list[dict]:
-        """Return thread-only message history capped at thread_context_limit."""
-        limit = getattr(self.config.oui, 'thread_context_limit', 10)
-        history = []
-        try:
-            channel = self.bot.get_channel(int(thread_id))
-            if isinstance(channel, discord.Thread):
-                async for msg in channel.history(limit=limit, oldest_first=True):
-                    role = 'assistant' if (msg.author.bot or msg.author.id == self.bot.user.id) else 'user'
-                    if msg.content:
-                        history.append({'role': role, 'content': msg.content})
-            elif hasattr(self, 'current_message') and self.current_message:
-                async for msg in self.current_message.channel.history(
-                    limit=limit, before=self.current_message, oldest_first=True
-                ):
-                    role = 'assistant' if (msg.author.bot or msg.author.id == self.bot.user.id) else 'user'
-                    if msg.content:
-                        history.append({'role': role, 'content': msg.content})
-        except Exception as exc:
-            log.error(f'get_thread_history failed: {exc}')
-        return history[-limit:]

@@ -4,6 +4,7 @@ This is the main entrypoint for the application.
 '''
 
 from dotenv import load_dotenv
+from easydict import EasyDict
 load_dotenv()
 
 import kizano
@@ -13,13 +14,15 @@ import os, sys
 import argparse
 from signal import signal, SIGINT
 
+from asthralios.brain import BrainDB
+from asthralios.brain.digest import run_digest
+from asthralios.brain.rbac import RBACManager
+from asthralios.chat.my_slack import send_slack_message
+from asthralios.chat.my_discord import send_discord_message
+
 
 def digest_action(config):
     """Run daily or weekly digest and optionally deliver to Slack/Discord."""
-    from asthralios.brain.digest import run_digest
-    from asthralios.brain import BrainDB
-    from asthralios.brain.rbac import RBACManager
-
     digest_type = 'daily' if config.get('daily') else 'weekly'
     text = run_digest(config, digest_type)
     print(text)
@@ -39,19 +42,14 @@ def digest_action(config):
     )
 
     if config.get('deliver_slack'):
-        from asthralios.chat.my_slack import send_slack_message
         send_slack_message(config, config['deliver_slack'], text)
     if config.get('deliver_discord'):
-        import asyncio
-        from asthralios.chat.my_discord import send_discord_message
-        asyncio.run(send_discord_message(config, config['deliver_discord'], text))
+        send_discord_message(config, config['deliver_discord'], text)
     return 0
 
 
 def notify_action(config):
     """Send an arbitrary message to Slack or Discord."""
-    from asthralios.brain import BrainDB
-
     target_channel = config.get('slack') or config.get('discord') or ''
     db = BrainDB(config.brain.db_path)
     db.log_access(
@@ -67,20 +65,14 @@ def notify_action(config):
     )
 
     if config.get('slack'):
-        from asthralios.chat.my_slack import send_slack_message
         send_slack_message(config, config['slack'], config.get('message', ''))
     elif config.get('discord'):
-        import asyncio
-        from asthralios.chat.my_discord import send_discord_message
-        asyncio.run(send_discord_message(config, config['discord'], config.get('message', '')))
+        send_discord_message(config, config['discord'], config.get('message', ''))
     return 0
 
 
 def users_action(config):
     """Manage RBAC users."""
-    from asthralios.brain import BrainDB
-    from asthralios.brain.rbac import RBACManager
-
     db   = BrainDB(config.brain.db_path)
     rbac = RBACManager(db, config)
 
@@ -139,16 +131,17 @@ class Cli:
 
     def getCmd(self):
         '''
+        Entrypoint to get the command + (config+args)
         '''
-        cfg = kizano.getConfig()
+        cfg = EasyDict(kizano.getConfig())
         opts = self.getOptions()
         # Command line takes precedence over config.
         for name, value in opts.items():
-            cfg.config[name] = value
+            cfg[name] = value
         self.log.info("Asthralios is waking up...")
-        action = cfg.config.get('action', 'converse')
+        action = cfg.get('action', 'converse')
         cmd = Cli.ACTIONS[action]
-        return (cmd, cfg.config)
+        return (cmd, cfg)
 
     def getOptions(self) -> dict:
         '''

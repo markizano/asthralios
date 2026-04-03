@@ -6,6 +6,7 @@ from asthralios.chat.my_discord import ChatAdapterDiscord
 from asthralios.chat.my_slack import ChatAdapterSlack
 # from my_msteams import ChatAdapterMSTeams # MS Teams is useless right now. They don't support Python :(
 
+import time
 import signal
 import multiprocessing
 import threading

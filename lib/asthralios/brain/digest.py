@@ -11,14 +11,14 @@ from datetime import date
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import SystemMessage, HumanMessage
 
+from asthralios import getLogger
 from asthralios.brain.db import BrainDB
 from asthralios.brain.prompts import (
     DAILY_DIGEST_SYSTEM, DAILY_DIGEST_USER,
     WEEKLY_DIGEST_SYSTEM, WEEKLY_DIGEST_USER,
 )
-import asthralios
 
-log = asthralios.getLogger(__name__)
+log = getLogger(__name__)
 
 
 def _rows_to_text(rows) -> str:
@@ -79,7 +79,7 @@ def run_digest(config, digest_type: str) -> str:
     digest_type: 'daily' or 'weekly'
     """
     db_path  = config.brain.db_path
-    model    = config.brain.get('model', config.get('model', 'llama3.2:3b'))
+    model    = config.brain.get('model', config.get('model', 'gpt-oss:20b'))
     provider = config.brain.get('provider', 'ollama')
 
     db  = BrainDB(db_path)

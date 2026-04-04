@@ -4,31 +4,24 @@ This is the main entrypoint for the application.
 '''
 
 from dotenv import load_dotenv
-from easydict import EasyDict
 load_dotenv()
-
-import kizano
-import asthralios
 
 import os, sys
 import argparse
+from easydict import EasyDict
 from signal import signal, SIGINT
 
-from asthralios.brain import BrainDB
-from asthralios.brain.digest import run_digest
-from asthralios.brain.rbac import RBACManager
-from asthralios.chat.my_slack import send_slack_message
-from asthralios.chat.my_discord import send_discord_message
-
+import kizano
+from asthralios import getLogger, chat, sentinel, brain
 
 def digest_action(config):
     """Run daily or weekly digest and optionally deliver to Slack/Discord."""
     digest_type = 'daily' if config.get('daily') else 'weekly'
-    text = run_digest(config, digest_type)
+    text = brain.digest.run_digest(config, digest_type)
     print(text)
 
     # Log CLI digest action to access_log for audit trail
-    db = BrainDB(config.brain.db_path)
+    db = brain.BrainDB(config.brain.db_path)
     db.log_access(
         platform='system',
         platform_user_id='cli',
@@ -42,16 +35,16 @@ def digest_action(config):
     )
 
     if config.get('deliver_slack'):
-        send_slack_message(config, config['deliver_slack'], text)
+        chat.my_slack.send_slack_message(config, config['deliver_slack'], text)
     if config.get('deliver_discord'):
-        send_discord_message(config, config['deliver_discord'], text)
+        chat.my_discord.send_discord_message(config, config['deliver_discord'], text)
     return 0
 
 
 def notify_action(config):
     """Send an arbitrary message to Slack or Discord."""
     target_channel = config.get('slack') or config.get('discord') or ''
-    db = BrainDB(config.brain.db_path)
+    db = brain.BrainDB(config.brain.db_path)
     db.log_access(
         platform='system',
         platform_user_id='cli',
@@ -65,16 +58,16 @@ def notify_action(config):
     )
 
     if config.get('slack'):
-        send_slack_message(config, config['slack'], config.get('message', ''))
+        chat.my_slack.send_slack_message(config, config['slack'], config.get('message', ''))
     elif config.get('discord'):
-        send_discord_message(config, config['discord'], config.get('message', ''))
+        chat.my_discord.send_discord_message(config, config['discord'], config.get('message', ''))
     return 0
 
 
 def users_action(config):
     """Manage RBAC users."""
-    db   = BrainDB(config.brain.db_path)
-    rbac = RBACManager(db, config)
+    db   = brain.BrainDB(config.brain.db_path)
+    rbac = brain.rbac.RBACManager(db, config)
 
     users_action_name = config.get('users_action')
 
@@ -110,18 +103,15 @@ def users_action(config):
 class Cli:
 
     ACTIONS = {
-        'converse': asthralios.senses.conversate,
-        'ingest': asthralios.senses.ingest,
-        'chat': asthralios.chat.start_chat,
-        'agent': asthralios.chat.start_agent,
-        'sentinel': asthralios.sentinel.check_code_quality,
+        'chat': chat.start_chat,
+        'sentinel': sentinel.check_code_quality,
         'digest': digest_action,
         'notify': notify_action,
         'users': users_action,
     }
 
     def __init__(self):
-        self.log = asthralios.logger.getLogger(__name__)
+        self.log = getLogger(__name__)
         signal(SIGINT, lambda code, frame: self.interrupt(code, frame))
 
     def interrupt(self, sig, frame):

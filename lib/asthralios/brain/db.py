@@ -51,9 +51,9 @@ from pathlib import Path
 from typing import Optional
 
 from asthralios.brain.schema import InboxLogRecord
-import asthralios
+from asthralios import getLogger
 
-log = asthralios.getLogger(__name__)
+log = getLogger(__name__)
 
 CREATE_INBOX_LOG = """
 CREATE TABLE IF NOT EXISTS inbox_log (

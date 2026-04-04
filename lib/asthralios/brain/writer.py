@@ -15,10 +15,11 @@ from pathlib import Path
 
 import yaml  # pyyaml
 
+from asthralios.brain import NOTE_CATEGORIES
 from asthralios.brain.schema import ClassificationResult
-import asthralios
+from asthralios import getLogger
 
-log = asthralios.getLogger(__name__)
+log = getLogger(__name__)
 
 
 def _slugify(text: str) -> str:
@@ -27,13 +28,12 @@ def _slugify(text: str) -> str:
     text = re.sub(r'[\s_-]+', '-', text)
     return text[:60]
 
-
 class BrainWriter:
 
     def __init__(self, vault_path: str):
         self.vault = Path(vault_path)
         # Ensure category subdirectories exist
-        for cat in ('people', 'projects', 'ideas', 'admin', 'musings'):
+        for cat in NOTE_CATEGORIES:
             (self.vault / cat).mkdir(parents=True, exist_ok=True)
 
     def write(

@@ -7,21 +7,16 @@ Register the functions needed in order to send and receive messages and DM's fro
 
 import asyncio
 import re
-from pathlib import Path
 from typing import Optional
 
 import discord
 from discord.ext import commands
 
-from asthralios.brain import BrainDB
-from asthralios.brain.rbac import UserIdentity
-from asthralios.chat.adapter import ChatAdapter, debug_event
+from asthralios import brain
+from asthralios.chat import adapter
+from asthralios import getLogger
 
-import asthralios
-log = asthralios.getLogger(__name__)
-
-NOTE_CATEGORIES = {'people', 'projects', 'ideas', 'admin', 'musings'}
-
+log = getLogger(__name__)
 
 def send_discord_message(config, channel_id: str, message: str) -> None:
     """
@@ -44,13 +39,12 @@ def send_discord_message(config, channel_id: str, message: str) -> None:
 
     asyncio.run(_send())
 
-
-class ChatAdapterDiscord(ChatAdapter):
+class ChatAdapterDiscord(adapter.ChatAdapter):
     '''
     Adapter interface to take the "rough edges" off of talking to Discord.
     '''
 
-    def mesgLimit(self):
+    def mesgLimit(self) -> int:
         return 2000
 
     def init(self):
@@ -65,8 +59,8 @@ class ChatAdapterDiscord(ChatAdapter):
     def start(self):
         self.bot.run(self.config.discord.bot_token)
 
-    def extract_identity(self, message: discord.Message) -> UserIdentity:
-        return UserIdentity(
+    def extract_identity(self, message: discord.Message) -> brain.rbac.UserIdentity:
+        return brain.rbac.UserIdentity(
             platform='discord',
             platform_user_id=str(message.author.id),   # snowflake as string
             display_name=message.author.display_name or message.author.name,
@@ -93,26 +87,26 @@ class ChatAdapterDiscord(ChatAdapter):
         '''
         @self.bot.event
         async def on_connect():
-            debug_event("on_connect", bot_user=str(self.bot.user))
+            adapter.debug_event("on_connect", bot_user=str(self.bot.user))
 
         @self.bot.event
         async def on_ready():
             # discord.py requires async here — tree.sync() is a coroutine.
             try:
                 synced = await self.bot.tree.sync()
-                debug_event(
+                adapter.debug_event(
                     "on_ready",
                     bot_user=str(self.bot.user),
                     num_commands=len(synced),
                     commands=[f"/{cmd.name}" for cmd in synced],
                 )
             except Exception as exc:
-                debug_event("on_ready_sync_error", error=repr(exc))
+                adapter.debug_event("on_ready_sync_error", error=repr(exc))
 
         @self.bot.event
         async def on_message(message: discord.Message):
             # discord.py requires async here — channel.send() and process_commands() are coroutines.
-            debug_event(
+            adapter.debug_event(
                 "on_message",
                 id=message.id,
                 author=str(message.author),
@@ -127,11 +121,11 @@ class ChatAdapterDiscord(ChatAdapter):
             )
 
             if message.author == self.bot.user:
-                debug_event('on_message', notice='Avoiding talking to ourselves.')
+                adapter.debug_event('on_message', notice='Avoiding talking to ourselves.')
                 return
 
             if not self.bot.user:
-                debug_event('on_message', notice='Not logged in.')
+                adapter.debug_event('on_message', notice='Not logged in.')
                 return
 
             if not self.llm:
@@ -190,42 +184,6 @@ class ChatAdapterDiscord(ChatAdapter):
                     await message.channel.send(reply[i:i+limit])
 
             await self.bot.process_commands(message)
-
-    def _handle_fix_command(self, text: str, source_user: str) -> str:
-        """
-        Parse 'fix: <category> [#entry_id]', move the file, update DB.
-        Returns the reply string.
-        """
-        match = re.match(r'^fix\s*:\s*(\w+)(?:\s+#(\d+))?', text, re.IGNORECASE)
-        if not match:
-            return "Couldn't parse fix command. Format: `fix: <category>` or `fix: <category> #<entry_id>`"
-
-        new_category = match.group(1).lower()
-        entry_id = int(match.group(2)) if match.group(2) else None
-
-        if new_category not in NOTE_CATEGORIES:
-            return f"Unknown category `{new_category}`. Valid: {', '.join(sorted(NOTE_CATEGORIES))}"
-
-        brain_cfg = self.config.brain
-        db = BrainDB(brain_cfg.db_path)
-
-        row = db.get_entry(entry_id) if entry_id else db.get_latest_for_user(source_user, ['filed', 'needs_review'])
-
-        if not row:
-            return "No matching entry found to fix."
-
-        original_category = row['category']
-        old_path = row['filed_path']
-
-        if old_path and Path(old_path).exists():
-            new_path = Path(brain_cfg.vault_path) / new_category / Path(old_path).name
-            Path(old_path).rename(new_path)
-            db.update_filed_path(row['id'], str(new_path))
-            db.update_status(row['id'], 'fix_applied', fix_original_cat=original_category)
-            return f"Fixed: moved entry #{row['id']} from `{original_category}` to `{new_category}`."
-        else:
-            db.update_status(row['id'], 'fix_applied', fix_original_cat=original_category)
-            return f"Fixed category for entry #{row['id']} to `{new_category}` (no file to move)."
 
     def format_message(self, m: discord.Message) -> tuple[str, str]:
         '''

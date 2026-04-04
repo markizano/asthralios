@@ -13,17 +13,13 @@ from typing import Optional
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import SystemMessage, HumanMessage
 
-from asthralios.brain.schema import (
-    ClassificationResult, PersonEntry, ProjectEntry,
-    IdeaEntry, AdminEntry, MusingEntry, EventEntry,
-)
+from asthralios.brain.schema import ClassificationResult
 from asthralios.brain.prompts import CLASSIFIER_SYSTEM, CLASSIFIER_USER
-import asthralios
+from asthralios import getLogger
 
-log = asthralios.getLogger(__name__)
+log = getLogger(__name__)
 
 CONFIDENCE_THRESHOLD = 0.60  # below this → ask for clarification
-
 
 class BrainClassifier:
     """
@@ -32,7 +28,7 @@ class BrainClassifier:
     """
 
     def __init__(self, config: dict):
-        model = config.get('model', 'llama3.2:3b')
+        model = config.get('model', 'gpt-oss:20b')
         provider = config.get('provider', 'ollama')
         self.llm = init_chat_model(model=model, model_provider=provider)
 

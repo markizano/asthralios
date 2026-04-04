@@ -52,9 +52,9 @@ class RBACManager:
 
     ROLE_ORDER = {'blocked': 0, 'user': 1, 'admin': 2}
 
-    def __init__(self, db: 'BrainDB', config):
-        self.db = db
+    def __init__(self, config: dict):
         self.config = config
+        self.db = BrainDB(config.get('brain', {}).get('valut_path', '.braindb'))
         self._seed_admins()
 
     def _seed_admins(self):

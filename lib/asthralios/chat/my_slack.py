@@ -8,22 +8,17 @@ Register the functions needed in order to send and receive messages and DM's fro
 import re
 from collections.abc import Callable
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk import WebClient
 
-from asthralios.brain import BrainDB
-from asthralios.brain.rbac import UserIdentity
-from asthralios.chat.adapter import ChatAdapter, debug_event
+from asthralios import brain
+from asthralios.chat import adapter
+from asthralios import getLogger
 
-import asthralios
-log = asthralios.getLogger(__name__)
-
-NOTE_CATEGORIES = {'people', 'projects', 'ideas', 'admin', 'musings'}
-
+log = getLogger(__name__)
 
 def send_slack_message(config, channel: str, message: str) -> None:
     """
@@ -33,13 +28,12 @@ def send_slack_message(config, channel: str, message: str) -> None:
     client = WebClient(token=config.slack.bot_token)
     client.chat_postMessage(channel=channel, text=message)
 
-
-class ChatAdapterSlack(ChatAdapter):
+class ChatAdapterSlack(adapter.ChatAdapter):
     '''
     Adapter interface to take the "rough edges" off of talking to Slack.
     '''
 
-    def mesgLimit(self):
+    def mesgLimit(self) -> int:
         return 4000
 
     def init(self):
@@ -65,10 +59,10 @@ class ChatAdapterSlack(ChatAdapter):
         def handle_message(event, say):
             self._handle_message_event(event, say, is_mention=False)
 
-    def extract_identity(self, event: dict) -> UserIdentity:
+    def extract_identity(self, event: dict) -> brain.rbac.UserIdentity:
         user_id = event.get('user', 'unknown')
         display_name = self._resolve_display_name(user_id)
-        return UserIdentity(
+        return brain.rbac.UserIdentity(
             platform='slack',
             platform_user_id=user_id,
             display_name=display_name,
@@ -93,19 +87,11 @@ class ChatAdapterSlack(ChatAdapter):
         self._name_cache[user_id] = name
         return name
 
-    def _get_channel(self, event: dict) -> str:
-        return event.get('channel', '')
-
-    def _get_text(self, event: dict) -> str:
-        """Return the formatted message text for LLM context."""
-        _, content = self.format_message(event)
-        return content
-
     def _handle_message_event(self, event: dict, say: Callable, is_mention: bool = False):
         '''
         Common handler for message events.
         '''
-        debug_event(
+        adapter.debug_event(
             "slack_message:start",
             user=event.get("user"),
             channel=event.get("channel"),
@@ -118,11 +104,11 @@ class ChatAdapterSlack(ChatAdapter):
 
         # Skip bot messages and messages without text
         if event.get("bot_id") or event.get("subtype") == "bot_message":
-            debug_event('slack_message:skip', notice='Skipping bot message')
+            adapter.debug_event('slack_message:skip', notice='Skipping bot message')
             return
 
         if not event.get("text"):
-            debug_event('slack_message:text', notice='No text content')
+            adapter.debug_event('slack_message:text', notice='No text content')
             return
 
         if not self.llm:
@@ -156,42 +142,6 @@ class ChatAdapterSlack(ChatAdapter):
         reply = self.on_message_received(event, thread_id=thread_ts)
         if reply:
             self.do_message_send(thread_say, reply)
-
-    def _handle_fix_command(self, text: str, source_user: str) -> str:
-        """
-        Parse 'fix: <category> [#entry_id]', move the file to the correct category,
-        update the DB status. Returns the reply string.
-        """
-        match = re.match(r'^fix\s*:\s*(\w+)(?:\s+#(\d+))?', text, re.IGNORECASE)
-        if not match:
-            return "Couldn't parse fix command. Format: `fix: <category>` or `fix: <category> #<entry_id>`"
-
-        new_category = match.group(1).lower()
-        entry_id = int(match.group(2)) if match.group(2) else None
-
-        if new_category not in NOTE_CATEGORIES:
-            return f"Unknown category `{new_category}`. Valid: {', '.join(sorted(NOTE_CATEGORIES))}"
-
-        brain_cfg = self.config.brain
-        db = BrainDB(brain_cfg.db_path)
-
-        row = db.get_entry(entry_id) if entry_id else db.get_latest_for_user(source_user, ['filed', 'needs_review'])
-
-        if not row:
-            return "No matching entry found to fix."
-
-        original_category = row['category']
-        old_path = row['filed_path']
-
-        if old_path and Path(old_path).exists():
-            new_path = Path(brain_cfg.vault_path) / new_category / Path(old_path).name
-            Path(old_path).rename(new_path)
-            db.update_filed_path(row['id'], str(new_path))
-            db.update_status(row['id'], 'fix_applied', fix_original_cat=original_category)
-            return f"Fixed: moved entry #{row['id']} from `{original_category}` to `{new_category}`."
-        else:
-            db.update_status(row['id'], 'fix_applied', fix_original_cat=original_category)
-            return f"Fixed category for entry #{row['id']} to `{new_category}` (no file to move)."
 
     def format_message(self, event: dict) -> tuple[str, str]:
         '''

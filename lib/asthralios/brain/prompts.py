@@ -16,7 +16,7 @@ into their inbox and produce a structured JSON object.
 
 {
   "category": "<one of the five above>",
-  "confidence": <float 0.0–1.0>,
+  "confidence": <float 0.0-1.0>,
   "name": "<a clear, concise title for this entry>",
   "next_action": "<the single most concrete next step, or null>",
   "needs_clarification": <true|false>,
@@ -25,6 +25,7 @@ into their inbox and produce a structured JSON object.
 }
 
 ## Payload fields by category
+
 people:   { name, email?, phone?, labels?: [], extra?: {} }
 projects: { name, next_action?, summary?, description?, priority?: low|medium|high|critical, timeline? }
 ideas:    { name, next_action?, premise?, source?, direction? }
@@ -32,16 +33,18 @@ admin:    { name, next_action?, due? }
 musings:  { name, blob }
 
 ## Confidence guidance
-- 0.9–1.0: crystal clear
-- 0.7–0.89: probably right
-- 0.5–0.69: ambiguous, but best guess
+
+- 0.9-1.0: crystal clear
+- 0.7-0.89: probably right
+- 0.5-0.69: ambiguous, but best guess
 - below 0.5: too vague, set needs_clarification=true
 
 ## Rules
+
 - Always output valid JSON. No trailing commas. No markdown.
 - If the message is extremely vague (one or two words with no context), set needs_clarification=true.
 - Extract a next_action only when a concrete physical action is implied. Do not fabricate one.
-- The name should be 3–8 words — descriptive enough to recognise at a glance.
+- The name should be 3-8 words — descriptive enough to recognise at a glance.
 """
 
 CLASSIFIER_USER = """

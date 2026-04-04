@@ -5,7 +5,8 @@ Describes a common unified interface such that all the chat apps can combine
 themselves into this class instance.
 
 '''
-
+import re
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Callable, Iterable, Optional
 
@@ -13,8 +14,7 @@ from easydict import EasyDict
 from openai.types.chat import ChatCompletionMessageParam
 import openwebui_client.client as oui
 
-from asthralios.brain import BrainClassifier, BrainWriter, BrainDB, InboxLogRecord
-from asthralios.brain.rbac import RBACManager
+from asthralios import brain
 
 import asthralios
 log = asthralios.getLogger(__name__)
@@ -49,11 +49,12 @@ class ChatAdapter(object):
         )
         self.init()
 
-    def get_rbac(self) -> RBACManager:
-        """Return (or lazily initialise) the RBACManager for this adapter."""
+    def get_rbac(self) -> brain.rbac.RBACManager:
+        '''
+        Return (or lazily initialise) the RBACManager for this adapter.
+        '''
         if not hasattr(self, '_rbac'):
-            db = BrainDB(self.config.brain.db_path)
-            self._rbac = RBACManager(db, self.config)
+            self._rbac = brain.rbac.RBACManager(self.config)
         return self._rbac
 
     def on_message_received(
@@ -77,8 +78,7 @@ class ChatAdapter(object):
         if ctx.role == 'blocked':
             rbac.log_access(ctx, 'blocked', 'denied')
             # Only reply on first contact; silent thereafter
-            db = BrainDB(self.config.brain.db_path)
-            prior = db.get_access_log(limit=2, platform_user_id=identity.platform_user_id)
+            prior = rbac.db.get_access_log(limit=2, platform_user_id=identity.platform_user_id)
             first_contact = len([r for r in prior if r['action'] == 'blocked']) <= 1
             if first_contact:
                 return getattr(self.config, 'rbac', {}).get(
@@ -135,7 +135,6 @@ class ChatAdapter(object):
         source_platform: str,
         source_user: str,
         source_channel: str,
-        thread_id: Optional[str] = None,
         thread_context: Optional[list[dict]] = None,
         access_ctx=None,
     ) -> str:
@@ -144,18 +143,14 @@ class ChatAdapter(object):
         Classify it, file it, log it, and return the reply string.
         access_ctx is an AccessContext from the RBAC gate (used for logging).
         """
-        brain_cfg  = self.config.brain
-        classifier = BrainClassifier(dict(
-            model=brain_cfg.get('model', 'llama3.2:3b'),
-            provider=brain_cfg.get('provider', 'ollama'),
-        ))
-        writer = BrainWriter(brain_cfg.vault_path)
-        db     = BrainDB(brain_cfg.db_path)
+        brain_cfg  = self.config.get('brain', {})
+        classifier = brain.classifier.BrainClassifier(brain_cfg)
+        writer = brain.writer.BrainWriter(brain_cfg.vault_path)
         rbac   = self.get_rbac() if access_ctx is not None else None
 
         result = classifier.classify(message, thread_context=thread_context)
 
-        log_record = InboxLogRecord(
+        log_record = brain.schema.InboxLogRecord(
             received_at=datetime.now(timezone.utc),
             source_platform=source_platform,
             source_user=source_user,
@@ -169,7 +164,7 @@ class ChatAdapter(object):
         )
 
         if result.needs_clarification:
-            db.log_entry(log_record)
+            rbac.db.log_entry(log_record)
             if rbac and access_ctx:
                 rbac.log_access(access_ctx, 'clarification', 'clarification_sent',
                                 detail=f'confidence={result.confidence:.2f}')
@@ -180,7 +175,7 @@ class ChatAdapter(object):
 
         filed_path = writer.write(result, source_platform, source_user)
         log_record.filed_path = filed_path
-        row_id = db.log_entry(log_record)
+        row_id = rbac.db.log_entry(log_record)
 
         if rbac and access_ctx:
             rbac.log_access(access_ctx, 'brain_filed', 'ok',
@@ -223,6 +218,42 @@ class ChatAdapter(object):
                     say(reply[i:i+msg_limit])
             else:
                 say(reply)
+
+    def _handle_fix_command(self, text: str, source_user: str) -> str:
+        '''
+        Parse 'fix: <category> [#entry_id]', move the file, update DB.
+        Returns the reply string.
+        '''
+        match = re.match(r'^fix\s*:\s*(\w+)(?:\s+#(\d+))?', text, re.IGNORECASE)
+        if not match:
+            return "Couldn't parse fix command. Format: `fix: <category>` or `fix: <category> #<entry_id>`"
+
+        new_category = match.group(1).lower()
+        entry_id = int(match.group(2)) if match.group(2) else None
+
+        if new_category not in brain.NOTE_CATEGORIES:
+            return f"Unknown category `{new_category}`. Valid: {', '.join(sorted(brain.NOTE_CATEGORIES))}"
+
+        brain_cfg = self.config.brain
+        db = brain.db.BrainDB(brain_cfg.db_path)
+
+        row = db.get_entry(entry_id) if entry_id else db.get_latest_for_user(source_user, ['filed', 'needs_review'])
+
+        if not row:
+            return "No matching entry found to fix."
+
+        original_category = row['category']
+        old_path = row['filed_path']
+
+        if old_path and Path(old_path).exists():
+            new_path = Path(brain_cfg.vault_path) / new_category / Path(old_path).name
+            Path(old_path).rename(new_path)
+            db.update_filed_path(row['id'], str(new_path))
+            db.update_status(row['id'], 'fix_applied', fix_original_cat=original_category)
+            return f"Fixed: moved entry #{row['id']} from `{original_category}` to `{new_category}`."
+        else:
+            db.update_status(row['id'], 'fix_applied', fix_original_cat=original_category)
+            return f"Fixed category for entry #{row['id']} to `{new_category}` (no file to move)."
 
     # Child/Derived classes must implement these.
     def init(self):

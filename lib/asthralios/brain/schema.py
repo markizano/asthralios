@@ -50,6 +50,7 @@ class AdminEntry(BaseModel):
 class MusingEntry(BaseModel):
     name: str
     next_action: Optional[str] = None
+    summary: Optional[str] = None  # one-sentence summary for the vault index
     blob: str  # full freeform text dump
 
 class EventEntry(BaseModel):

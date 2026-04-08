@@ -16,10 +16,9 @@ platform_user_id values:
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import Literal, Optional
 
-if TYPE_CHECKING:
-    from asthralios.brain.db import BrainDB
+from asthralios.brain.db import BrainDB
 
 Role = Literal['admin', 'user', 'blocked']
 Platform = Literal['slack', 'discord']
@@ -52,9 +51,9 @@ class RBACManager:
 
     ROLE_ORDER = {'blocked': 0, 'user': 1, 'admin': 2}
 
-    def __init__(self, config: dict):
+    def __init__(self, db: BrainDB, config: dict):
+        self.db = db
         self.config = config
-        self.db = BrainDB(config.get('brain', {}).get('valut_path', '.braindb'))
         self._seed_admins()
 
     def _seed_admins(self):

@@ -26,11 +26,15 @@ into their inbox and produce a structured JSON object.
 
 ## Payload fields by category
 
-people:   { name, email?, phone?, labels?: [], extra?: {} }
+people:   { name, email?, phone?, labels?: [], extra?: { org?: "Company Name", title?: "Job Title", ... } }
 projects: { name, next_action?, summary?, description?, priority?: low|medium|high|critical, timeline? }
 ideas:    { name, next_action?, premise?, source?, direction? }
 admin:    { name, next_action?, due? }
-musings:  { name, blob }
+musings:  { name, summary, blob }
+
+Notes:
+- musings `summary`: a single sentence capturing the core insight or topic, used for the vault index.
+- people `extra`: free-form dict for any additional contact fields (org, title, company, social handles, etc.).
 
 ## Confidence guidance
 

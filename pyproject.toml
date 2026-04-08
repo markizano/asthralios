@@ -44,6 +44,7 @@ dependencies = [
     "slack-bolt==1.27.0",
     "slack-sdk==3.41.0",
     "torch>=2.11.0",
+    "vobject>=0.9.9",
 ]
 keywords = [ "ai", "artificial intelligence", "agentic", "langchain" ]
 

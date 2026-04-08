@@ -8,12 +8,11 @@ themselves into this class instance.
 import re
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Callable, Iterable, Optional
+from typing import Callable, Optional
 
 from easydict import EasyDict
-from langchain_core.messages import SystemMessage
-from openai.types.chat import ChatCompletionMessageParam
-import openwebui_client.client as oui
+from langchain.chat_models import init_chat_model
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from asthralios import brain
 
@@ -39,14 +38,15 @@ def debug_event(event_name: str, **kwargs) -> None:
 
 class ChatAdapter(object):
     '''
-    Base class that represents a chat adapter. Could be used for any chat interface.
+    If I could, I would denote this an `abstract` class, but Python doesn't do that very well.
+    Base "abstract" class that represents a chat adapter. Could be used for any chat interface.
     '''
     def __init__(self, config: EasyDict):
         self.config = config
-        self.llm = oui.OpenWebUIClient(
-            base_url=self.config.oui.base_url,
-            api_key=self.config.oui.api_key,
-            default_model=self.config.oui.model,
+        llm_cfg = config.get('llm', {})
+        self._llm = init_chat_model(
+            model=llm_cfg.get('model', 'gpt-oss:20b'),
+            model_provider=llm_cfg.get('provider', 'ollama'),
         )
         self.init()
 
@@ -55,7 +55,8 @@ class ChatAdapter(object):
         Return (or lazily initialise) the RBACManager for this adapter.
         '''
         if not hasattr(self, '_rbac'):
-            self._rbac = brain.rbac.RBACManager(self.config)
+            db = brain.db.BrainDB(self.config.get('brain', {}).get('db_path', '.braindb'))
+            self._rbac = brain.rbac.RBACManager(db, self.config)
         return self._rbac
 
     def on_message_received(
@@ -100,7 +101,6 @@ class ChatAdapter(object):
                 source_platform=identity.platform,
                 source_user=identity.platform_user_id,
                 source_channel=channel,
-                thread_id=thread_id,
                 thread_context=thread_context,
                 access_ctx=ctx,
             )
@@ -112,20 +112,19 @@ class ChatAdapter(object):
         chat_history = self.get_thread_history(thread_id) if thread_id else []
 
         # Build the message list based on history, context and system prompt.
-        messages: Iterable[ChatCompletionMessageParam] = [SystemMessage(content=SYSTEM_PROMPT)]
-        messages.extend(chat_history)
-        messages.append({'role': 'user', 'content': message})
+        messages = [SystemMessage(content=SYSTEM_PROMPT)]
+        for msg in chat_history:
+            if msg['role'] == 'assistant':
+                messages.append(AIMessage(content=msg['content']))
+            else:
+                messages.append(HumanMessage(content=msg['content']))
+        messages.append(HumanMessage(content=message))
         debug_event('on_message_received', messages=messages)
 
         # Attempt to get a response from the LLM.
         try:
-            response = self.llm.chat.completions.create(
-                messages=messages,
-                model=self.llm.default_model or "gpt-5",
-                stream=False,
-                max_tokens=1024,
-            )
-            return response.choices[0].message.content if response.choices else "Sorry, I couldn't generate a response."
+            response = self._llm.invoke(messages)
+            return response.content if response else "Sorry, I couldn't generate a response."
         except Exception as e:
             debug_event('error:on_message_received', error=e)
             return 'Sorry, I had an issue getting a response...'
@@ -146,7 +145,7 @@ class ChatAdapter(object):
         """
         brain_cfg  = self.config.get('brain', {})
         classifier = brain.classifier.BrainClassifier(brain_cfg)
-        writer = brain.writer.BrainWriter(brain_cfg.vault_path)
+        vault = brain.vault.BrainVault(brain_cfg.vault_path)
         rbac   = self.get_rbac() if access_ctx is not None else None
 
         result = classifier.classify(message, thread_context=thread_context)
@@ -174,7 +173,7 @@ class ChatAdapter(object):
                 f"_(confidence: {result.confidence:.0%})_"
             )
 
-        filed_path = writer.write(result, source_platform, source_user)
+        filed_path = vault.write(result, source_platform, source_user)
         log_record.filed_path = filed_path
         row_id = rbac.db.log_entry(log_record)
 

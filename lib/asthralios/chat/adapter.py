@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Callable, Iterable, Optional
 
 from easydict import EasyDict
+from langchain_core.messages import SystemMessage
 from openai.types.chat import ChatCompletionMessageParam
 import openwebui_client.client as oui
 
@@ -111,7 +112,7 @@ class ChatAdapter(object):
         chat_history = self.get_thread_history(thread_id) if thread_id else []
 
         # Build the message list based on history, context and system prompt.
-        messages: Iterable[ChatCompletionMessageParam] = [{'role': 'system', 'content': SYSTEM_PROMPT}]
+        messages: Iterable[ChatCompletionMessageParam] = [SystemMessage(content=SYSTEM_PROMPT)]
         messages.extend(chat_history)
         messages.append({'role': 'user', 'content': message})
         debug_event('on_message_received', messages=messages)

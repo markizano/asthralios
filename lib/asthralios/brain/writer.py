@@ -9,14 +9,13 @@ YAML frontmatter fields present on every file:
 
 Additional fields from payload are merged in.
 """
-
+import os
 import re
 from pathlib import Path
 
 import yaml  # pyyaml
 
-from asthralios.brain import NOTE_CATEGORIES
-from asthralios.brain.schema import ClassificationResult
+from asthralios.brain import NOTE_CATEGORIES, schema
 from asthralios import getLogger
 
 log = getLogger(__name__)
@@ -34,11 +33,13 @@ class BrainWriter:
         self.vault = Path(vault_path)
         # Ensure category subdirectories exist
         for cat in NOTE_CATEGORIES:
-            (self.vault / cat).mkdir(parents=True, exist_ok=True)
+            cat_path = os.path.join(vault_path, cat)
+            if not os.path.exists(cat_path):
+                os.makedirs(cat_path, exists_ok=True)
 
     def write(
         self,
-        result: ClassificationResult,
+        result: schema.ClassificationResult,
         source_platform: str,
         source_user: str,
     ) -> str:
@@ -48,12 +49,13 @@ class BrainWriter:
         date_str = result.classified_at.strftime('%Y-%m-%d')
         slug = _slugify(result.name)
         filename = f'{date_str}-{slug}.md'
-        filepath = self.vault / result.category / filename
+        filepath = os.path.join(self.vault, result.category, filename)
 
         # Handle filename collisions
-        if filepath.exists():
+        if os.path.exists(filepath):
             ts = result.classified_at.strftime('%H%M%S')
-            filepath = self.vault / result.category / f'{date_str}-{slug}-{ts}.md'
+            filename = f'{date_str}-{ts}-{slug}.md'
+            filepath = os.path.join(self.vault, result.category, filename)
 
         frontmatter = {
             'classification': result.category,
@@ -90,6 +92,6 @@ class BrainWriter:
         fm_str = yaml.dump(frontmatter, default_flow_style=False, allow_unicode=True)
         content = f'---\n{fm_str}---\n\n' + '\n'.join(body_lines) + '\n'
 
-        filepath.write_text(content, encoding='utf-8')
+        open(filepath, 'w', encoding='utf-8').write(content)
         log.info(f'Brain: wrote {filepath}')
-        return str(filepath)
+        return filepath
